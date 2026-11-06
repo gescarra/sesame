@@ -1,0 +1,35 @@
+{
+  "name": "@sesame/api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "HTTP API (Hono) served by a Lambda Web Function, with a classic-Lambda adapter fallback",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./config": "./src/config.ts",
+    "./session": "./src/session.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/bundle.mjs --include-aws-sdk src/server.ts src/lambda.ts",
+    "dev": "node --watch src/server.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1158.0",
+    "@aws-sdk/client-s3": "^3.1158.0",
+    "@aws-sdk/client-sqs": "^3.1158.0",
+    "@aws-sdk/client-ssm": "^3.1158.0",
+    "@aws-sdk/lib-dynamodb": "^3.1158.0",
+    "@aws-sdk/s3-presigned-post": "^3.1158.0",
+    "@aws-sdk/s3-request-presigner": "^3.1158.0",
+    "@hono/node-server": "^2.1.5",
+    "@sesame/core": "workspace:*",
+    "aws-jwt-verify": "^5.2.1",
+    "hono": "^4.13.14",
+    "nodemailer": "^10.2.1"
+  },
+  "devDependencies": {
+    "@smithy/util-stream": "^4.8.2",
+    "@types/nodemailer": "^8.0.2"
+  }
+}

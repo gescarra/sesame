@@ -1,0 +1,33 @@
+region = "us-east-1"
+name   = "sesame"
+domain = "example.com"
+
+# Write DNS records to Route 53 (omit to manage DNS elsewhere):
+# route53_zone_id = "Z0123456789ABCDEFGHIJ"
+
+# dmarc_report_address = "dmarc@example.com"
+
+# Sign-in. Configure at least one IdP, or allow native Cognito users while testing.
+# allow_cognito_users = true
+# identity_providers = [{
+#   name              = "Okta"
+#   type              = "OIDC"
+#   attribute_mapping = { email = "email", name = "name" }
+#   details = {
+#     client_id                 = "..."
+#     client_secret             = "..."
+#     oidc_issuer               = "https://example.okta.com"
+#     authorize_scopes          = "openid email profile"
+#     attributes_request_method = "GET"
+#   }
+# }]
+
+# Alarms and an optional cost budget. SNS emails each address a confirmation link first.
+# alarm_emails       = ["ops@example.com"]
+# monthly_budget_usd = 10
+
+# Serve the web app and API on your own hostname instead of *.cloudfront.net. With route53_zone_id
+# set, sesame issues the ACM certificate and creates the DNS records. Otherwise, pass a us-east-1
+# certificate in web_certificate_arn and point the name at the cloudfront_domain_name output.
+# web_domain = "mail.example.com"
+

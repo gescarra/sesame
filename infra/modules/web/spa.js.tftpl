@@ -1,0 +1,25 @@
+var CANONICAL_HOST = "${canonical_host}";
+
+function query(qs) {
+  var parts = [];
+  for (var key in qs) {
+    var values = qs[key].multiValue ? qs[key].multiValue : [qs[key]];
+    for (var i = 0; i < values.length; i++) parts.push(key + "=" + values[i].value);
+  }
+  return parts.length ? "?" + parts.join("&") : "";
+}
+
+function handler(event) {
+  var request = event.request;
+  var host = request.headers.host ? request.headers.host.value : "";
+  if (CANONICAL_HOST && host !== CANONICAL_HOST) {
+    return {
+      statusCode: 301,
+      statusDescription: "Moved Permanently",
+      headers: { location: { value: "https://" + CANONICAL_HOST + request.uri + query(request.querystring) } },
+    };
+  }
+  // Every path without a file extension is a client-side route.
+  if (!request.uri.includes(".")) request.uri = "/index.html";
+  return request;
+}

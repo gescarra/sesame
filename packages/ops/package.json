@@ -1,0 +1,20 @@
+{
+  "name": "@sesame/ops",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Directory and queue administration shared by the CLI and the admin console",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1158.0",
+    "@aws-sdk/client-sqs": "^3.1158.0",
+    "@aws-sdk/lib-dynamodb": "^3.1158.0",
+    "@sesame/core": "workspace:*"
+  }
+}

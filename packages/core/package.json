@@ -1,0 +1,22 @@
+{
+  "name": "@sesame/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared types, DynamoDB key builders, address handling and IDs",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./dto": "./src/dto.ts",
+    "./folders": "./src/folders.ts",
+    "./delivery": "./src/delivery.ts",
+    "./quota": "./src/quota.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1158.0",
+    "@aws-sdk/lib-dynamodb": "^3.1158.0"
+  }
+}

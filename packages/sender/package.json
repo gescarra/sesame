@@ -1,0 +1,23 @@
+{
+  "name": "@sesame/sender",
+  "version": "0.0.0",
+  "private": true,
+  "description": "SQS consumer: sends outbound mail to external recipients through SES v2",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/bundle.mjs src/handler.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1158.0",
+    "@aws-sdk/client-s3": "^3.1158.0",
+    "@aws-sdk/client-sesv2": "^3.1158.0",
+    "@aws-sdk/lib-dynamodb": "^3.1158.0",
+    "@sesame/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@smithy/util-stream": "^4.8.2",
+    "@types/aws-lambda": "^8.10.164"
+  }
+}

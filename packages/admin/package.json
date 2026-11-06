@@ -1,0 +1,25 @@
+{
+  "name": "@sesame/admin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Admin console: a server-rendered web app on its own Lambda Web Function",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/bundle.mjs --include-aws-sdk src/server.ts",
+    "dev": "node --watch src/server.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.1158.0",
+    "@aws-sdk/client-dynamodb": "^3.1158.0",
+    "@aws-sdk/client-sesv2": "^3.1158.0",
+    "@aws-sdk/client-sqs": "^3.1158.0",
+    "@aws-sdk/lib-dynamodb": "^3.1158.0",
+    "@hono/node-server": "^2.1.5",
+    "@sesame/api": "workspace:*",
+    "@sesame/core": "workspace:*",
+    "@sesame/ops": "workspace:*",
+    "hono": "^4.13.14"
+  }
+}

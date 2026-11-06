@@ -1,0 +1,20 @@
+{
+  "name": "@sesame/ses-events",
+  "version": "0.0.0",
+  "private": true,
+  "description": "SNS consumer: records SES delivery, bounce and complaint events",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/bundle.mjs src/handler.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1158.0",
+    "@aws-sdk/lib-dynamodb": "^3.1158.0",
+    "@sesame/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.164"
+  }
+}

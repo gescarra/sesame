@@ -1,0 +1,25 @@
+{
+  "name": "@sesame/ingest",
+  "version": "0.0.0",
+  "private": true,
+  "description": "SQS consumer: parses inbound and internal MIME and delivers to mailboxes",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/bundle.mjs src/handler.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1158.0",
+    "@aws-sdk/client-s3": "^3.1158.0",
+    "@aws-sdk/lib-dynamodb": "^3.1158.0",
+    "@sesame/core": "workspace:*",
+    "postal-mime": "^4.1.4",
+    "sanitize-html": "^2.18.1"
+  },
+  "devDependencies": {
+    "@smithy/util-stream": "^4.8.2",
+    "@types/aws-lambda": "^8.10.164",
+    "@types/sanitize-html": "^2.16.2"
+  }
+}
