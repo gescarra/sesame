@@ -17,7 +17,8 @@ export const directoryKeys = {
     gsi1sk: `MBX#${mailboxId}`,
   }),
   suppression: (address: string) => ({ pk: `SUPPRESS#${normalizeAddress(address)}`, sk: META }),
-  rate: (userSub: string, window: string) => ({ pk: `RATE#${userSub}#${window}`, sk: META }),
+  /** Sends per person per clock hour, keyed by normalized email so web and phones share one budget. */
+  rate: (userId: string, window: string) => ({ pk: `RATE#${normalizeAddress(userId)}#${window}`, sk: META }),
   /** A deleted mailbox whose mail is still being purged. */
   purge: (mailboxId: string) => ({ pk: `PURGE#${mailboxId}`, sk: META }),
   /** One partition, newest last: admin actions are rare enough not to need sharding. */
@@ -36,6 +37,11 @@ export const directoryKeys = {
   device: (userId: string, deviceId: string) => ({ pk: `DEVICE#${normalizeAddress(userId)}`, sk: deviceId }),
   /** Failed ActiveSync sign-ins for one username or source IP in one window. Expires by TTL. */
   authFailures: (subject: string, window: string) => ({ pk: `AUTHFAIL#${subject}#${window}`, sk: META }),
+  /** A message a phone sent, by its ClientId, so a resend isn't sent twice. Expires by TTL. */
+  easSend: (userId: string, deviceId: string, clientId: string) => ({
+    pk: `EASSEND#${normalizeAddress(userId)}#${deviceId}`,
+    sk: clientId,
+  }),
 };
 
 /** GSI1 sort key prefixes under USER#<email>. */

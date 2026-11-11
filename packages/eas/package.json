@@ -13,9 +13,15 @@
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1158.0",
     "@aws-sdk/client-s3": "^3.1158.0",
+    "@aws-sdk/client-sqs": "^3.1158.0",
     "@aws-sdk/lib-dynamodb": "^3.1158.0",
     "@hono/node-server": "^2.1.5",
     "@sesame/core": "workspace:*",
-    "hono": "^4.13.14"
+    "hono": "^4.13.14",
+    "nodemailer": "^10.2.1",
+    "postal-mime": "^4.1.4"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.2"
   }
 }

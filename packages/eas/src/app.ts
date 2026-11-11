@@ -9,6 +9,7 @@ import { getItemEstimate } from "./commands/getItemEstimate.ts";
 import { itemOperations } from "./commands/itemOperations.ts";
 import { moveItems } from "./commands/moveItems.ts";
 import { provision } from "./commands/provision.ts";
+import { sendMail, smartForward, smartReply } from "./commands/sendMail.ts";
 import { settings } from "./commands/settings.ts";
 import { sync } from "./commands/sync.ts";
 import { createDeps, type Deps, log } from "./deps.ts";
@@ -51,9 +52,9 @@ const COMMANDS: Record<string, Command> = {
     run: itemOperations,
   },
   MoveItems: { root: "Move:MoveItems", status: "Move:Status", run: moveItems },
-  SendMail: { root: "ComposeMail:SendMail", status: "ComposeMail:Status" },
-  SmartReply: { root: "ComposeMail:SmartReply", status: "ComposeMail:Status" },
-  SmartForward: { root: "ComposeMail:SmartForward", status: "ComposeMail:Status" },
+  SendMail: { root: "ComposeMail:SendMail", status: "ComposeMail:Status", run: sendMail },
+  SmartReply: { root: "ComposeMail:SmartReply", status: "ComposeMail:Status", run: smartReply },
+  SmartForward: { root: "ComposeMail:SmartForward", status: "ComposeMail:Status", run: smartForward },
   Ping: { root: "Ping:Ping", status: "Ping:Status" },
 };
 
@@ -144,6 +145,7 @@ export function createApp(loadDeps: () => Promise<Deps>) {
 
     const response = await command.run({ deps, req, session: { ...session, device: session.device } }, body);
     deps.log("info", "ActiveSync request", { ...fields, ms: deps.now() - started });
+    if (response === null) return c.body(null, 200);
     return "parts" in response ? multipart(c, response) : wbxml(c, response);
   });
 

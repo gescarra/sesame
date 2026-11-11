@@ -1,13 +1,20 @@
 // Test fixtures: in-memory stand-ins for the DynamoDB document client and S3, and a request helper.
 // The DynamoDB fake understands the expressions sesame's ActiveSync code writes: SET (including
-// if_not_exists), ADD and REMOVE; conditions joined by AND of attribute_exists,
-// attribute_not_exists and equality; GSI1 folder queries; and transactions.
+// if_not_exists), ADD and REMOVE; conditions joined by AND or OR of attribute_exists,
+// attribute_not_exists, equality and "<"; GSI1 folder queries; and transactions.
 import {
   ConditionalCheckFailedException,
   DynamoDBClient,
   TransactionCanceledException,
 } from "@aws-sdk/client-dynamodb";
-import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import {
   BatchGetCommand,
   DeleteCommand,
@@ -49,11 +56,15 @@ type Item = Record<string, unknown>;
 type Key = { pk: unknown; sk: unknown };
 
 export const BUCKET = "mail-bucket";
+export const INGEST_QUEUE = "https://sqs.test/ingest";
+export const SEND_QUEUE = "https://sqs.test/send";
 
 const doc = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-east-1" }));
 const ddbMock = mockClient(doc);
 const s3 = new S3Client({ region: "us-east-1" });
 const s3Mock = mockClient(s3);
+const sqs = new SQSClient({ region: "us-east-1" });
+const sqsMock = mockClient(sqs);
 
 type Names = Record<string, string> | undefined;
 type Values = Record<string, unknown> | undefined;
@@ -94,17 +105,36 @@ export class FakeDb {
 
   /** S3 objects by key. */
   objects = new Map<string, { body: Buffer; contentType?: string }>();
+  /** SQS messages sent, parsed, with their queue. */
+  queued: { queue: string; job: Record<string, unknown> }[] = [];
 
   constructor() {
     this.deps = {
-      config: { directoryTable: DIR, mailTable: MAIL, mailBucket: BUCKET },
+      config: {
+        directoryTable: DIR,
+        mailTable: MAIL,
+        mailBucket: BUCKET,
+        ingestQueueUrl: INGEST_QUEUE,
+        sendQueueUrl: SEND_QUEUE,
+        sendRateLimit: 200,
+      },
       doc,
       s3,
+      sqs,
       now: () => NOW,
       log: (level, msg) => this.logs.push(`${level}: ${msg}`),
     };
     ddbMock.reset();
     s3Mock.reset();
+    sqsMock.reset();
+    sqsMock.on(SendMessageCommand).callsFake((i) => {
+      this.queued.push({ queue: i.QueueUrl, job: JSON.parse(i.MessageBody) });
+      return { MessageId: `m${this.queued.length}` };
+    });
+    s3Mock.on(PutObjectCommand).callsFake((i) => {
+      this.objects.set(i.Key, { body: Buffer.from(i.Body as Buffer), contentType: i.ContentType });
+      return {};
+    });
     ddbMock.on(GetCommand).callsFake((i) => ({ Item: this.get(i.TableName, i.Key) }));
     ddbMock.on(BatchGetCommand).callsFake((i) => ({
       Responses: Object.fromEntries(
@@ -259,6 +289,9 @@ export class FakeDb {
   ): boolean {
     if (!condition) return true;
     const name = (n: string) => names?.[n] ?? n;
+    if (/\s+OR\s+/.test(condition)) {
+      return condition.split(/\s+OR\s+/).some((c) => this.evaluate(item, c, names, values));
+    }
     return condition.split(/\s+AND\s+/).every((clause) => {
       const exists = clause.match(/^attribute_exists\((.+)\)$/);
       if (exists) return item !== undefined && item[name(exists[1] as string)] !== undefined;
@@ -267,6 +300,11 @@ export class FakeDb {
       const equals = clause.match(/^(\S+)\s*=\s*(:\w+)$/);
       if (equals)
         return item !== undefined && item[name(equals[1] as string)] === values?.[equals[2] as string];
+      const less = clause.match(/^(\S+)\s*<\s*(:\w+)$/);
+      if (less)
+        return (
+          item !== undefined && Number(item[name(less[1] as string)]) < Number(values?.[less[2] as string])
+        );
       throw new Error(`FakeDb can't evaluate ${clause}`);
     });
   }
@@ -356,6 +394,8 @@ export class FakeDb {
     };
     this.put(DIR, mailbox as unknown as Item);
     this.put(DIR, member as unknown as Item);
+    this.put(DIR, { ...directoryKeys.domain("example.com"), type: "domain", domain: "example.com" });
+    this.put(DIR, { ...directoryKeys.address(ALICE), type: "address", mailboxId: MBX, kind: "primary" });
     this.put(DIR, password as unknown as Item);
     return password;
   }

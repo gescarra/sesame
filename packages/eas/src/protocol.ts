@@ -35,7 +35,11 @@ export interface MultipartReply {
   parts: Buffer[];
 }
 
-export type Handler = (ctx: CommandContext, body: Element | undefined) => Promise<Element | MultipartReply>;
+/** A response element, a multipart reply, or null for an empty 200 (a successful SendMail). */
+export type Handler = (
+  ctx: CommandContext,
+  body: Element | undefined,
+) => Promise<Element | MultipartReply | null>;
 
 export const MULTIPART_TYPE = "application/vnd.ms-sync.multipart";
 

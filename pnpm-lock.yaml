@@ -296,6 +296,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.1158.0
         version: 3.1158.0
+      '@aws-sdk/client-sqs':
+        specifier: ^3.1158.0
+        version: 3.1158.0
       '@aws-sdk/lib-dynamodb':
         specifier: ^3.1158.0
         version: 3.1158.0(@aws-sdk/client-dynamodb@3.1158.0)
@@ -306,6 +309,9 @@ importers:
         specifier: ^3.1158.0
         version: 3.1158.0
       '@aws-sdk/client-s3':
+        specifier: ^3.1158.0
+        version: 3.1158.0
+      '@aws-sdk/client-sqs':
         specifier: ^3.1158.0
         version: 3.1158.0
       '@aws-sdk/lib-dynamodb':
@@ -320,6 +326,16 @@ importers:
       hono:
         specifier: ^4.13.14
         version: 4.13.14
+      nodemailer:
+        specifier: ^10.2.1
+        version: 10.2.1
+      postal-mime:
+        specifier: ^4.1.4
+        version: 4.1.4
+    devDependencies:
+      '@types/nodemailer':
+        specifier: ^8.0.2
+        version: 8.0.2
 
   packages/ingest:
     dependencies:

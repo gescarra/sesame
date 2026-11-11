@@ -50,8 +50,8 @@ data "aws_iam_policy_document" "eas" {
     ]
   }
 
-  # Directory: app passwords, devices, memberships, sign-in failure counters, and mailbox quota
-  # usage when a message is purged. Mail: messages, folder counters, search tokens of purged
+  # Directory: app passwords, devices, memberships, sign-in failure counters, send rate
+  # counters, sent ClientIds, and mailbox quota usage when a message is purged. Mail: messages, folder counters, search tokens of purged
   # messages, and per-device sync state.
   statement {
     sid = "Tables"
@@ -78,6 +78,20 @@ data "aws_iam_policy_document" "eas" {
     sid       = "MailObjects"
     actions   = ["s3:GetObject", "s3:DeleteObject"]
     resources = ["${var.mail_bucket_arn}/mbx/*"]
+  }
+
+  # Mail a phone sends, stored once for ingest and the sender to read.
+  statement {
+    sid       = "OutboundObjects"
+    actions   = ["s3:PutObject"]
+    resources = ["${var.mail_bucket_arn}/raw/outbound/*"]
+  }
+
+  # Internal recipients and the Sent copy go to ingest; external recipients to the sender.
+  statement {
+    sid       = "Queues"
+    actions   = ["sqs:SendMessage"]
+    resources = [var.ingest_queue_arn, var.send_queue_arn]
   }
 
   statement {
@@ -139,6 +153,9 @@ resource "awscc_lambda_web_function_revision" "eas" {
       DIRECTORY_TABLE              = var.directory_table_name
       MAIL_TABLE                   = var.mail_table_name
       MAIL_BUCKET                  = var.mail_bucket_name
+      INGEST_QUEUE_URL             = var.ingest_queue_url
+      SEND_QUEUE_URL               = var.send_queue_url
+      SEND_RATE_LIMIT              = tostring(var.send_rate_limit)
     }
     telemetry_config = {
       logging_config = {

@@ -1,28 +1,17 @@
-// Compose and route outgoing mail. The API builds the MIME once and stores it in S3, then:
-// - internal recipients and the sender's Sent copy go to the ingest queue, like inbound mail;
-// - external recipients go to the send queue, where the sender Lambda hands them to SES.
-// No mail between local mailboxes ever goes through SES.
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import { UpdateCommand } from "@aws-sdk/lib-dynamodb";
+// Compose outgoing mail from the web app's form. The API builds the MIME; queueOutgoing in core
+// checks and routes it, the same way it routes mail phones send over ActiveSync.
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 import {
-  batchGet,
-  type DeliveryJob,
-  deliveredUlid,
-  directoryKeys,
   domainOf,
-  getItem,
-  isMailboxFull,
   isValidAddress,
-  type MailboxItem,
+  MAX_RECIPIENTS,
   type MessageItem,
-  newDelivery,
   newUlid,
   normalizeAddress,
   type OutgoingAttachment,
-  resolveAddresses,
-  type SendJob,
+  OutgoingError,
+  type OutgoingErrorCode,
+  queueOutgoing,
   type SendRequest,
   type SendResponse,
   type UploadRequest,
@@ -33,8 +22,7 @@ import MailComposer from "nodemailer/lib/mail-composer";
 import type { Deps, SessionUser } from "./deps.ts";
 import { requireMessage } from "./mail.ts";
 
-/** SES v2 accepts up to 50 recipients and 40 MB per message, after base64 (about 4/3 larger). */
-export const MAX_RECIPIENTS = 50;
+/** SES v2 accepts up to 40 MB per message, after base64 (about 4/3 larger). */
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 export const MAX_TOTAL_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_ATTACHMENTS = 20;
@@ -148,35 +136,6 @@ export function validateSend(body: unknown): ValidSend {
 
 // --- Sending ------------------------------------------------------------------
 
-/** Counts sends per user per clock hour; the item expires a day later. */
-async function takeRateToken(deps: Deps, user: SessionUser) {
-  const now = new Date(deps.now());
-  const window = now.toISOString().slice(0, 13); // YYYY-MM-DDTHH
-  try {
-    await deps.doc.send(
-      new UpdateCommand({
-        TableName: deps.config.directoryTable,
-        Key: directoryKeys.rate(user.sub, window),
-        UpdateExpression: "ADD #count :one SET #ttl = if_not_exists(#ttl, :ttl)",
-        ConditionExpression: "attribute_not_exists(#count) OR #count < :limit",
-        ExpressionAttributeNames: { "#count": "count", "#ttl": "ttl" },
-        ExpressionAttributeValues: {
-          ":one": 1,
-          ":limit": deps.config.sendRateLimit,
-          ":ttl": Math.floor(now.getTime() / 1000) + 24 * 3600,
-        },
-      }),
-    );
-  } catch (err) {
-    if (err instanceof ConditionalCheckFailedException) {
-      throw new HTTPException(429, {
-        message: `you can send at most ${deps.config.sendRateLimit} messages an hour`,
-      });
-    }
-    throw err;
-  }
-}
-
 async function readObject(deps: Deps, key: string): Promise<Buffer | undefined> {
   try {
     const res = await deps.s3.send(new GetObjectCommand({ Bucket: deps.config.mailBucket, Key: key }));
@@ -258,6 +217,18 @@ export function buildMime(opts: {
   );
 }
 
+const HTTP_STATUS: Record<OutgoingErrorCode, 400 | 404 | 422 | 429> = {
+  "no-recipients": 400,
+  "too-many-recipients": 400,
+  "bad-from": 400,
+  "mailbox-not-found": 404,
+  "unknown-recipient": 422,
+  "mailbox-full": 422,
+  "recipient-full": 422,
+  suppressed: 422,
+  "rate-limited": 429,
+};
+
 export async function sendMessage(
   deps: Deps,
   user: SessionUser,
@@ -265,139 +236,36 @@ export async function sendMessage(
   body: unknown,
 ): Promise<SendResponse> {
   const req = validateSend(body);
-  const mailbox = await getItem<MailboxItem>(
-    deps.doc,
-    deps.config.directoryTable,
-    directoryKeys.mailbox(mailboxId),
-  );
-  if (!mailbox) throw new HTTPException(404, { message: "mailbox not found" });
-
-  const recipients = [...new Set([...req.to, ...req.cc, ...req.bcc])];
-  const [fromResolution, ...resolutions] = await resolveAddresses(deps.doc, deps.config.directoryTable, [
-    req.from ?? mailbox.primaryAddress,
-    ...recipients,
-  ]);
-  // The From address must be this mailbox's own (primary or alias), never a catch-all match.
-  if (
-    fromResolution?.kind !== "local" ||
-    fromResolution.mailboxId !== mailboxId ||
-    fromResolution.via !== "address"
-  ) {
-    throw bad("you can only send from this mailbox's own addresses");
-  }
-  const unknown = resolutions.filter((r) => r.kind === "unknown-local").map((r) => r.address);
-  if (unknown.length) {
-    throw new HTTPException(422, { message: `no mailbox exists for ${unknown.join(", ")}` });
-  }
-  const local = resolutions.flatMap((r) => (r.kind === "local" ? [r] : []));
-  const internal = local.map((r) => r.address);
-  const external = resolutions.filter((r) => r.kind === "external").map((r) => r.address);
-
-  // Ingest would hold mail for a full mailbox in the DLQ; refusing here tells the sender right away.
-  if (isMailboxFull(mailbox)) {
-    throw new HTTPException(422, {
-      message: "your mailbox is full: delete mail from Trash, or ask your administrator for more space",
-    });
-  }
-  if (local.length) {
-    const boxes = (await batchGet(
-      deps.doc,
-      deps.config.directoryTable,
-      [...new Set(local.map((r) => r.mailboxId))].map((id) => directoryKeys.mailbox(id)),
-    )) as unknown as MailboxItem[];
-    const full = new Set(boxes.filter(isMailboxFull).map((b) => b.mailboxId));
-    const blocked = local.filter((r) => full.has(r.mailboxId)).map((r) => r.address);
-    if (blocked.length) {
-      throw new HTTPException(422, { message: `not sent: the mailbox of ${blocked.join(", ")} is full` });
-    }
-  }
-
-  if (external.length) {
-    const suppressed = await batchGet(
-      deps.doc,
-      deps.config.directoryTable,
-      external.map((a) => directoryKeys.suppression(a)),
-    );
-    if (suppressed.length) {
-      const list = suppressed.map((s) => `${s.address} (${s.reason})`).join(", ");
-      throw new HTTPException(422, {
-        message: `not sent: earlier mail to ${list} failed, so these addresses are blocked`,
-      });
-    }
-  }
-
   const original = req.inReplyTo ? await requireMessage(deps, mailboxId, req.inReplyTo) : undefined;
   const forwarded = req.forward ? await requireMessage(deps, mailboxId, req.forward.id) : undefined;
-  const attachments = await collectAttachments(deps, user, req, forwarded);
-
-  await takeRateToken(deps, user);
-
-  const now = new Date(deps.now());
-  const id = newUlid(now.getTime());
-  const from = fromResolution.address;
-  const opts: Parameters<typeof buildMime>[0] = {
-    from: mailbox.displayName ? { name: mailbox.displayName, address: from } : { address: from },
-    to: req.to,
-    cc: req.cc,
-    subject: req.subject,
-    text: req.text,
-    messageId: `<${id.toLowerCase()}@${domainOf(from)}>`,
-    date: now,
-    attachments,
-  };
-  if (original?.messageIdHeader) {
-    opts.inReplyTo = original.messageIdHeader;
-    opts.references = [...(original.references ?? []), original.messageIdHeader].slice(-20);
-  }
-  const raw = await buildMime(opts);
-
-  const key = `raw/outbound/${id}.eml`;
-  await deps.s3.send(
-    new PutObjectCommand({
-      Bucket: deps.config.mailBucket,
-      Key: key,
-      Body: raw,
-      ContentType: "message/rfc822",
-    }),
-  );
-
-  const receivedAt = now.toISOString();
-  const delivery = newDelivery(external, internal, receivedAt);
-  const job: DeliveryJob = {
-    source: "internal",
-    id,
-    bucket: deps.config.mailBucket,
-    key,
-    recipients: internal,
-    receivedAt,
-    sentCopy: { mailboxId, delivery },
-  };
-  const sentUlid = deliveredUlid(job, mailboxId, "sent");
-  await deps.sqs.send(
-    new SendMessageCommand({ QueueUrl: deps.config.ingestQueueUrl, MessageBody: JSON.stringify(job) }),
-  );
-
-  if (external.length) {
-    const sendJob: SendJob = {
-      id,
-      bucket: deps.config.mailBucket,
-      key,
-      from,
-      destinations: external,
+  try {
+    const result = await queueOutgoing(deps, {
       mailboxId,
-      sentUlid,
-    };
-    await deps.sqs.send(
-      new SendMessageCommand({ QueueUrl: deps.config.sendQueueUrl, MessageBody: JSON.stringify(sendJob) }),
-    );
+      userId: user.email,
+      ...(req.from ? { from: req.from } : {}),
+      recipients: [...req.to, ...req.cc, ...req.bcc],
+      compose: async ({ id, date, from, mailbox }) => {
+        const opts: Parameters<typeof buildMime>[0] = {
+          from: mailbox.displayName ? { name: mailbox.displayName, address: from } : { address: from },
+          to: req.to,
+          cc: req.cc,
+          subject: req.subject,
+          text: req.text,
+          messageId: `<${id.toLowerCase()}@${domainOf(from)}>`,
+          date,
+          attachments: await collectAttachments(deps, user, req, forwarded),
+        };
+        if (original?.messageIdHeader) {
+          opts.inReplyTo = original.messageIdHeader;
+          opts.references = [...(original.references ?? []), original.messageIdHeader].slice(-20);
+        }
+        return buildMime(opts);
+      },
+    });
+    return { sentId: result.sentUlid, internal: result.internal, external: result.external };
+  } catch (err) {
+    if (err instanceof OutgoingError)
+      throw new HTTPException(HTTP_STATUS[err.code], { message: err.message });
+    throw err;
   }
-
-  deps.log("info", "message queued", {
-    id,
-    mailboxId,
-    sub: user.sub,
-    internal: internal.length,
-    external: external.length,
-  });
-  return { sentId: sentUlid, internal: internal.length, external: external.length };
 }

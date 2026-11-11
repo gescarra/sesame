@@ -8,6 +8,7 @@ export * from "./ids.ts";
 export * from "./keys.ts";
 export * from "./messages.ts";
 export * from "./outbound.ts";
+export * from "./outgoing.ts";
 export * from "./quota.ts";
 export * from "./search.ts";
 export * from "./types.ts";

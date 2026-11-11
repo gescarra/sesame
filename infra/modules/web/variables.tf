@@ -106,7 +106,7 @@ variable "send_queue_arn" {
 }
 
 variable "send_rate_limit" {
-  description = "Messages each user may send per hour."
+  description = "Messages each person may send per hour, from the web app and phones together."
   type        = number
   default     = 200
 }
