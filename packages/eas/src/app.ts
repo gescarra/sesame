@@ -5,10 +5,21 @@ import { createHash } from "node:crypto";
 import { type Context, Hono } from "hono";
 import { authenticate } from "./auth.ts";
 import { folderSync } from "./commands/folderSync.ts";
+import { getItemEstimate } from "./commands/getItemEstimate.ts";
+import { itemOperations } from "./commands/itemOperations.ts";
+import { moveItems } from "./commands/moveItems.ts";
 import { provision } from "./commands/provision.ts";
 import { settings } from "./commands/settings.ts";
+import { sync } from "./commands/sync.ts";
 import { createDeps, type Deps, log } from "./deps.ts";
-import { GlobalStatus, type Handler, PROTOCOL_VERSION, WBXML_TYPE } from "./protocol.ts";
+import {
+  GlobalStatus,
+  type Handler,
+  MULTIPART_TYPE,
+  type MultipartReply,
+  PROTOCOL_VERSION,
+  WBXML_TYPE,
+} from "./protocol.ts";
 import { parseRequest, RequestError } from "./request.ts";
 import { decode, type Element, el, encode, WbxmlError } from "./wbxml/codec.ts";
 
@@ -28,10 +39,18 @@ const COMMANDS: Record<string, Command> = {
   Provision: { root: "Provision:Provision", status: "Provision:Status", run: provision },
   Settings: { root: "Settings:Settings", status: "Settings:Status", run: settings },
   FolderSync: { root: "FolderHierarchy:FolderSync", status: "FolderHierarchy:Status", run: folderSync },
-  Sync: { root: "AirSync:Sync", status: "AirSync:Status" },
-  GetItemEstimate: { root: "GetItemEstimate:GetItemEstimate", status: "GetItemEstimate:Status" },
-  ItemOperations: { root: "ItemOperations:ItemOperations", status: "ItemOperations:Status" },
-  MoveItems: { root: "Move:MoveItems", status: "Move:Status" },
+  Sync: { root: "AirSync:Sync", status: "AirSync:Status", run: sync },
+  GetItemEstimate: {
+    root: "GetItemEstimate:GetItemEstimate",
+    status: "GetItemEstimate:Status",
+    run: getItemEstimate,
+  },
+  ItemOperations: {
+    root: "ItemOperations:ItemOperations",
+    status: "ItemOperations:Status",
+    run: itemOperations,
+  },
+  MoveItems: { root: "Move:MoveItems", status: "Move:Status", run: moveItems },
   SendMail: { root: "ComposeMail:SendMail", status: "ComposeMail:Status" },
   SmartReply: { root: "ComposeMail:SmartReply", status: "ComposeMail:Status" },
   SmartForward: { root: "ComposeMail:SmartForward", status: "ComposeMail:Status" },
@@ -125,7 +144,7 @@ export function createApp(loadDeps: () => Promise<Deps>) {
 
     const response = await command.run({ deps, req, session: { ...session, device: session.device } }, body);
     deps.log("info", "ActiveSync request", { ...fields, ms: deps.now() - started });
-    return wbxml(c, response);
+    return "parts" in response ? multipart(c, response) : wbxml(c, response);
   });
 
   app.onError((err, c) => {
@@ -137,6 +156,20 @@ export function createApp(loadDeps: () => Promise<Deps>) {
 
 function wbxml(c: Context, root: Element) {
   return c.body(new Uint8Array(encode(root)), 200, { "Content-Type": WBXML_TYPE });
+}
+
+/** Part count, then each part's offset and length (little-endian int32s), then the parts. */
+function multipart(c: Context, reply: MultipartReply) {
+  const parts = [encode(reply.root), ...reply.parts];
+  const header = Buffer.alloc(4 + 8 * parts.length);
+  header.writeInt32LE(parts.length, 0);
+  let offset = header.length;
+  parts.forEach((part, i) => {
+    header.writeInt32LE(offset, 4 + 8 * i);
+    header.writeInt32LE(part.length, 8 + 8 * i);
+    offset += part.length;
+  });
+  return c.body(new Uint8Array(Buffer.concat([header, ...parts])), 200, { "Content-Type": MULTIPART_TYPE });
 }
 
 function unauthorized(c: Context) {

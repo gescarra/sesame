@@ -61,7 +61,9 @@ describe("OPTIONS", () => {
     const res = await options(basic(ALICE, PASSWORD));
     expect(res.status).toBe(200);
     expect(res.headers.get("ms-asprotocolversions")).toBe("14.1");
-    expect(res.headers.get("ms-asprotocolcommands")).toBe("Provision,Settings,FolderSync");
+    expect(res.headers.get("ms-asprotocolcommands")).toBe(
+      "Provision,Settings,FolderSync,Sync,GetItemEstimate,ItemOperations,MoveItems",
+    );
   });
 });
 
@@ -128,7 +130,7 @@ describe("requests", () => {
   });
 
   it("answers 501 for commands that aren't implemented yet", async () => {
-    expect((await post(db, "Sync", undefined)).res.status).toBe(501);
+    expect((await post(db, "SendMail", undefined)).res.status).toBe(501);
   });
 
   it("answers status 102 for a body that isn't WBXML", async () => {

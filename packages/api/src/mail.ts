@@ -1,26 +1,24 @@
 // Mailbox reads and state changes against the mail table, keeping folder counters in step.
-import { TransactionCanceledException } from "@aws-sdk/client-dynamodb";
-import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
-import {
-  DeleteCommand,
-  GetCommand,
-  QueryCommand,
-  type QueryCommandInput,
-  TransactWriteCommand,
-} from "@aws-sdk/lib-dynamodb";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetCommand, QueryCommand, type QueryCommandInput } from "@aws-sdk/lib-dynamodb";
 import {
   batchGet,
-  deleteIndex,
+  changeMessage,
+  counterDeltas,
   directoryKeys,
+  findMessage,
   type MailboxAccess,
   type MailboxItem,
   type MemberItem,
   type MessageChanges,
+  MessageConflictError,
   type MessageDetail,
   type MessageItem,
+  MessageNotFoundError,
   type MessageSummary,
   mailKeys,
   type Page,
+  removeMessage,
   SYSTEM_FOLDERS,
   type SystemFolder,
   USER_INDEX,
@@ -268,15 +266,8 @@ async function hydrate(deps: Deps, keys: Record<string, unknown>[]): Promise<Mes
 
 // --- Single messages ------------------------------------------------------
 
-export async function getMessage(deps: Deps, mailboxId: string, id: string, consistent = false) {
-  const res = await deps.doc.send(
-    new GetCommand({
-      TableName: deps.config.mailTable,
-      Key: mailKeys.message(mailboxId, id),
-      ConsistentRead: consistent,
-    }),
-  );
-  return res.Item as MessageItem | undefined;
+export function getMessage(deps: Deps, mailboxId: string, id: string, consistent = false) {
+  return findMessage(deps, mailboxId, id, consistent);
 }
 
 export async function requireMessage(deps: Deps, mailboxId: string, id: string, consistent = false) {
@@ -299,197 +290,25 @@ export async function readBody(deps: Deps, message: MessageItem): Promise<{ text
 
 export type Changes = MessageChanges;
 
-/**
- * Applies read/flag/folder changes and the matching counter deltas in one transaction.
- * The update is conditional on the state it was computed from; on a race it re-reads and retries.
- */
-export async function updateMessage(deps: Deps, mailboxId: string, id: string, changes: Changes) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const cur = await requireMessage(deps, mailboxId, id, true);
-    const next = {
-      read: changes.read ?? cur.read,
-      flagged: changes.flagged ?? cur.flagged,
-      folder: changes.folder ?? cur.folder,
-    };
-    if (next.read === cur.read && next.flagged === cur.flagged && next.folder === cur.folder) return cur;
-
-    const names: Record<string, string> = { "#read": "read", "#flagged": "flagged", "#folder": "folder" };
-    const values: Record<string, unknown> = {
-      ":read": next.read,
-      ":flagged": next.flagged,
-      ":folder": next.folder,
-      ":curRead": cur.read,
-      ":curFolder": cur.folder,
-      ":gsi1pk": mailKeys.folderView(mailboxId, next.folder, id).gsi1pk,
-    };
-    let update = "SET #read = :read, #flagged = :flagged, #folder = :folder, gsi1pk = :gsi1pk";
-    if (next.flagged) {
-      const view = mailKeys.flaggedView(mailboxId, id);
-      update += ", gsi3pk = :gsi3pk, gsi3sk = :gsi3sk";
-      values[":gsi3pk"] = view.gsi3pk;
-      values[":gsi3sk"] = view.gsi3sk;
-    } else {
-      update += " REMOVE gsi3pk, gsi3sk";
-    }
-
-    const counters = counterDeltas(cur, next).map(([folder, total, unread]) => ({
-      Update: {
-        TableName: deps.config.mailTable,
-        Key: mailKeys.folderCounter(mailboxId, folder),
-        UpdateExpression: "ADD #total :total, #unread :unread SET #updatedAt = :now",
-        ExpressionAttributeNames: { "#total": "total", "#unread": "unread", "#updatedAt": "updatedAt" },
-        ExpressionAttributeValues: {
-          ":total": total,
-          ":unread": unread,
-          ":now": new Date(deps.now()).toISOString(),
-        },
-      },
-    }));
-
-    try {
-      await deps.doc.send(
-        new TransactWriteCommand({
-          TransactItems: [
-            {
-              Update: {
-                TableName: deps.config.mailTable,
-                Key: mailKeys.message(mailboxId, id),
-                UpdateExpression: update,
-                ConditionExpression: "attribute_exists(pk) AND #read = :curRead AND #folder = :curFolder",
-                ExpressionAttributeNames: names,
-                ExpressionAttributeValues: values,
-              },
-            },
-            ...counters,
-          ],
-        }),
-      );
-    } catch (err) {
-      if (
-        err instanceof TransactionCanceledException &&
-        err.CancellationReasons?.[0]?.Code === "ConditionalCheckFailed"
-      ) {
-        continue;
-      }
-      throw err;
-    }
-    return { ...cur, ...next };
-  }
-  throw new HTTPException(409, { message: "message changed concurrently, try again" });
-}
-
-/** [folder, totalDelta, unreadDelta] for each counter a state change touches. */
-export function counterDeltas(
-  cur: { read: boolean; folder: SystemFolder },
-  next: { read: boolean; folder: SystemFolder },
-): [SystemFolder, number, number][] {
-  if (cur.folder !== next.folder) {
-    return [
-      [cur.folder, -1, cur.read ? 0 : -1],
-      [next.folder, 1, next.read ? 0 : 1],
-    ];
-  }
-  if (cur.read !== next.read) return [[cur.folder, 0, next.read ? -1 : 1]];
-  return [];
-}
-
-/**
- * Deletes a message that is already in trash: its item, counters, quota usage,
- * Message-ID map entry and S3 objects. Messages elsewhere are moved to trash instead.
- */
-export async function deleteMessage(
-  deps: Deps,
-  mailboxId: string,
-  id: string,
-): Promise<"trashed" | "purged"> {
-  const cur = await requireMessage(deps, mailboxId, id, true);
-  if (cur.folder !== "trash") {
-    await updateMessage(deps, mailboxId, id, { folder: "trash" });
-    return "trashed";
-  }
+/** Core message errors as HTTP errors. */
+async function http<T>(work: Promise<T>): Promise<T> {
   try {
-    await deps.doc.send(
-      new TransactWriteCommand({
-        TransactItems: [
-          {
-            Delete: {
-              TableName: deps.config.mailTable,
-              Key: mailKeys.message(mailboxId, id),
-              ConditionExpression: "#folder = :trash",
-              ExpressionAttributeNames: { "#folder": "folder" },
-              ExpressionAttributeValues: { ":trash": "trash" },
-            },
-          },
-          {
-            Update: {
-              TableName: deps.config.mailTable,
-              Key: mailKeys.folderCounter(mailboxId, "trash"),
-              UpdateExpression: "ADD #total :total, #unread :unread",
-              ExpressionAttributeNames: { "#total": "total", "#unread": "unread" },
-              ExpressionAttributeValues: { ":total": -1, ":unread": cur.read ? 0 : -1 },
-            },
-          },
-          {
-            Update: {
-              TableName: deps.config.directoryTable,
-              Key: directoryKeys.mailbox(mailboxId),
-              UpdateExpression: "ADD #used :size",
-              ExpressionAttributeNames: { "#used": "usedBytes" },
-              ExpressionAttributeValues: { ":size": -cur.size },
-            },
-          },
-        ],
-      }),
-    );
+    return await work;
   } catch (err) {
-    if (
-      err instanceof TransactionCanceledException &&
-      err.CancellationReasons?.[0]?.Code === "ConditionalCheckFailed"
-    ) {
-      throw new HTTPException(409, { message: "message changed concurrently, try again" });
-    }
+    if (err instanceof MessageNotFoundError) throw new HTTPException(404, { message: err.message });
+    if (err instanceof MessageConflictError) throw new HTTPException(409, { message: err.message });
     throw err;
   }
-
-  // Best effort after the item is gone: a leftover map entry or object is harmless.
-  if (cur.messageIdHeader) {
-    await deps.doc
-      .send(
-        new DeleteCommand({
-          TableName: deps.config.mailTable,
-          Key: mailKeys.messageIdMap(mailboxId, cur.messageIdHeader),
-          ConditionExpression: "messageUlid = :u",
-          ExpressionAttributeValues: { ":u": id },
-        }),
-      )
-      .catch(() => undefined);
-  }
-  if (cur.tokens?.length) {
-    await deleteIndex(deps.doc, deps.config.mailTable, mailboxId, id, cur.tokens).catch((err) =>
-      deps.log("warn", "could not delete search tokens", { id, error: String(err) }),
-    );
-  }
-  await deleteObjects(deps, cur.objectPrefix).catch((err) =>
-    deps.log("warn", "could not delete message objects", { prefix: cur.objectPrefix, error: String(err) }),
-  );
-  return "purged";
 }
 
-async function deleteObjects(deps: Deps, prefix: string) {
-  let ContinuationToken: string | undefined;
-  do {
-    const res = await deps.s3.send(
-      new ListObjectsV2Command({ Bucket: deps.config.mailBucket, Prefix: prefix, ContinuationToken }),
-    );
-    const objects = (res.Contents ?? []).flatMap((o) => (o.Key ? [{ Key: o.Key }] : []));
-    if (objects.length) {
-      await deps.s3.send(
-        new DeleteObjectsCommand({
-          Bucket: deps.config.mailBucket,
-          Delete: { Objects: objects, Quiet: true },
-        }),
-      );
-    }
-    ContinuationToken = res.NextContinuationToken;
-  } while (ContinuationToken);
+/** Applies read/flag/folder changes; see changeMessage in core. */
+export function updateMessage(deps: Deps, mailboxId: string, id: string, changes: Changes) {
+  return http(changeMessage(deps, mailboxId, id, changes));
 }
+
+/** Moves a message to trash, or purges it when it's already there; see removeMessage in core. */
+export function deleteMessage(deps: Deps, mailboxId: string, id: string) {
+  return http(removeMessage(deps, mailboxId, id));
+}
+
+export { counterDeltas };

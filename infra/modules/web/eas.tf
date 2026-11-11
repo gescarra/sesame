@@ -50,9 +50,11 @@ data "aws_iam_policy_document" "eas" {
     ]
   }
 
-  # App passwords, devices, memberships, mailboxes and sign-in failure counters.
+  # Directory: app passwords, devices, memberships, sign-in failure counters, and mailbox quota
+  # usage when a message is purged. Mail: messages, folder counters, search tokens of purged
+  # messages, and per-device sync state.
   statement {
-    sid = "Directory"
+    sid = "Tables"
     actions = [
       "dynamodb:GetItem",
       "dynamodb:BatchGetItem",
@@ -60,8 +62,33 @@ data "aws_iam_policy_document" "eas" {
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
       "dynamodb:DeleteItem",
+      "dynamodb:BatchWriteItem",
+      "dynamodb:ConditionCheckItem",
     ]
-    resources = [var.directory_table_arn, "${var.directory_table_arn}/index/*"]
+    resources = [
+      var.directory_table_arn,
+      "${var.directory_table_arn}/index/*",
+      var.mail_table_arn,
+      "${var.mail_table_arn}/index/*",
+    ]
+  }
+
+  # Message bodies and attachments; deleting is for purging messages from Trash.
+  statement {
+    sid       = "MailObjects"
+    actions   = ["s3:GetObject", "s3:DeleteObject"]
+    resources = ["${var.mail_bucket_arn}/mbx/*"]
+  }
+
+  statement {
+    sid       = "ListMailObjects"
+    actions   = ["s3:ListBucket"]
+    resources = [var.mail_bucket_arn]
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["mbx/*"]
+    }
   }
 
   dynamic "statement" {

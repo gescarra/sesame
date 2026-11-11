@@ -70,6 +70,14 @@ export const mailKeys = {
   sesMessage: (sesMessageId: string) => ({ pk: `SES#${sesMessageId}`, sk: META }),
   /** Claimed by the sender before calling SES, so a redelivered job never sends twice. */
   sendLock: (jobId: string) => ({ pk: `SEND#${jobId}`, sk: META }),
+  /**
+   * What one ActiveSync device holds of one folder (sync key and snapshot). Under the mailbox's
+   * partition, so purging the mailbox removes it.
+   */
+  easState: (mailboxId: string, deviceId: string, folder: string) => ({
+    pk: `MBX#${mailboxId}`,
+    sk: `EAS#${deviceId}#${folder}`,
+  }),
   /** Search tokens are sharded by their first two characters so prefix queries hit one partition. */
   searchToken: (mailboxId: string, token: string, ulid: string) => ({
     pk: searchShard(mailboxId, token),

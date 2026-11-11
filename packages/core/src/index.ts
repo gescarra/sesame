@@ -6,6 +6,7 @@ export * from "./dto.ts";
 export * from "./folders.ts";
 export * from "./ids.ts";
 export * from "./keys.ts";
+export * from "./messages.ts";
 export * from "./outbound.ts";
 export * from "./quota.ts";
 export * from "./search.ts";

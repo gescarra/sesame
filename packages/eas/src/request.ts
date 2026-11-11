@@ -11,7 +11,7 @@ export interface EasRequest {
   /** "14.1" */
   protocolVersion?: string;
   policyKey?: string;
-  /** Command parameters such as CollectionId, ItemId, SaveInSent. */
+  /** Command parameters such as CollectionId, ItemId, SaveInSent and AcceptMultiPart ("T"). */
   params: Record<string, string>;
 }
 
@@ -73,6 +73,8 @@ function parsePlain(query: string, header: (name: string) => string | undefined)
   if (version) req.protocolVersion = version;
   const policyKey = header("x-ms-policykey");
   if (policyKey) req.policyKey = policyKey;
+  // The plain form asks for multipart ItemOperations responses with a header.
+  if (header("ms-asacceptmultipart")?.toUpperCase() === "T") req.params.AcceptMultiPart = "T";
   return req;
 }
 

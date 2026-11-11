@@ -44,6 +44,12 @@ describe("WBXML codec", () => {
     expect(child(decode(bytes), "ComposeMail:Mime")?.opaque).toEqual(mime);
   });
 
+  it("writes raw inline bytes as a string, dropping NULs", () => {
+    const mime = Buffer.from([0x53, 0x75, 0x62, 0x6a, 0xe9, 0x00, 0x21]); // "Subj", Latin-1 é, NUL, "!"
+    const bytes = encode({ tag: "AirSyncBase:Data", inline: mime });
+    expect(bytes).toEqual(hex("03 01 6a 00 00 11 4b 03 53 75 62 6a e9 21 00 01"));
+  });
+
   it("keeps UTF-8 text", () => {
     const doc = el("Settings:Settings", [el("Settings:UserDisplayName", "Zoë Ångström 📬")]);
     expect(decode(encode(doc))).toEqual(doc);

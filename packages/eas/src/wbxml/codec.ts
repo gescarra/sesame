@@ -4,13 +4,16 @@ import { tagFor, tokenFor } from "./codepages.ts";
 
 /**
  * One element. `tag` is qualified with its code page, e.g. "FolderHierarchy:SyncKey".
- * An element holds child elements, or text, or opaque bytes (MIME bodies), or nothing.
+ * An element holds child elements, or text, or opaque bytes, or nothing. `inline` is text
+ * given as raw bytes, written as an inline string without re-encoding: MIME going to a phone,
+ * which may hold 8-bit data that isn't UTF-8. Decoding never produces it.
  */
 export interface Element {
   tag: string;
   children?: Element[];
   text?: string;
   opaque?: Buffer;
+  inline?: Buffer;
 }
 
 const SWITCH_PAGE = 0x00;
@@ -72,7 +75,7 @@ export function encode(root: Element): Buffer {
       out.push(SWITCH_PAGE, tagPage);
       page = tagPage;
     }
-    const hasContent = Boolean(e.children?.length || e.text || e.opaque);
+    const hasContent = Boolean(e.children?.length || e.text || e.opaque || e.inline?.length);
     out.push(hasContent ? token | HAS_CONTENT : token);
     if (!hasContent) return;
     if (e.children?.length) {
@@ -85,6 +88,14 @@ export function encode(root: Element): Buffer {
       out.push(STR_I);
       flush();
       chunks.push(Buffer.from(e.text, "utf8"), Buffer.from([0]));
+    } else if (e.inline) {
+      out.push(STR_I);
+      flush();
+      // A NUL would end the string early; MIME never needs one outside binary parts.
+      chunks.push(
+        e.inline.includes(0) ? Buffer.from(e.inline.filter((b) => b !== 0)) : e.inline,
+        Buffer.from([0]),
+      );
     }
     out.push(END);
   };
@@ -205,6 +216,7 @@ export function toXml(e: Element, indent = ""): string {
     return `${indent}<${e.tag}>\n${e.children.map((c) => toXml(c, `${indent}  `)).join("\n")}\n${indent}</${e.tag}>`;
   }
   if (e.opaque) return `${indent}<${e.tag}>[${e.opaque.length} bytes]</${e.tag}>`;
+  if (e.inline) return `${indent}<${e.tag}>[${e.inline.length} bytes of text]</${e.tag}>`;
   if (e.text !== undefined) return `${indent}<${e.tag}>${e.text}</${e.tag}>`;
   return `${indent}<${e.tag}/>`;
 }

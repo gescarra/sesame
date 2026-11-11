@@ -226,6 +226,8 @@ export interface DeviceItem {
   policyKey?: string;
   /** Handed out in the first Provision round, waiting for the client's acknowledgement. */
   pendingPolicyKey?: string;
+  /** Folders in the last Sync request, which an empty Sync request repeats. */
+  syncCollections?: string[];
   firstSeenAt: string;
   /** Updated at most hourly. */
   lastSeenAt: string;

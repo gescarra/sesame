@@ -1,5 +1,6 @@
 // Configuration and outside-world dependencies, injected so tests can replace them.
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
 export interface EasConfig {
@@ -13,6 +14,7 @@ export type Log = (level: "info" | "warn" | "error", msg: string, fields?: Recor
 export interface Deps {
   config: EasConfig;
   doc: DynamoDBDocumentClient;
+  s3: S3Client;
   now: () => number;
   log: Log;
 }
@@ -42,6 +44,7 @@ export async function createDeps(): Promise<Deps> {
     doc: DynamoDBDocumentClient.from(new DynamoDBClient({}), {
       marshallOptions: { removeUndefinedValues: true },
     }),
+    s3: new S3Client({}),
     now: Date.now,
     log,
   };

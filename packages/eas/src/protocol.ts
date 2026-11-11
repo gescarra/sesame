@@ -25,7 +25,19 @@ export interface CommandContext {
   session: Session & { device: NonNullable<Session["device"]> };
 }
 
-export type Handler = (ctx: CommandContext, body: Element | undefined) => Promise<Element>;
+/**
+ * A response with binary parts ([MS-ASCMD] 2.2.2.10.1), for clients that ask for multipart
+ * ItemOperations: the WBXML refers to part n with ItemOperations:Part instead of inlining it.
+ */
+export interface MultipartReply {
+  root: Element;
+  /** Parts 1, 2, …; part 0 is the WBXML. */
+  parts: Buffer[];
+}
+
+export type Handler = (ctx: CommandContext, body: Element | undefined) => Promise<Element | MultipartReply>;
+
+export const MULTIPART_TYPE = "application/vnd.ms-sync.multipart";
 
 /**
  * The folders a phone sees. The ServerId is sesame's folder name, which is also the Sync
