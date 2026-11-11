@@ -271,8 +271,14 @@ async function deliverToMailbox(
             Update: {
               TableName: deps.mailTable,
               Key: mailKeys.folderCounter(mailboxId, placement.folder),
-              UpdateExpression: "ADD #total :one, #unread :unread SET #updatedAt = :now",
-              ExpressionAttributeNames: { "#total": "total", "#unread": "unread", "#updatedAt": "updatedAt" },
+              // version tells phones waiting on the folder (ActiveSync Ping) that it changed.
+              UpdateExpression: "ADD #total :one, #unread :unread, #version :one SET #updatedAt = :now",
+              ExpressionAttributeNames: {
+                "#total": "total",
+                "#unread": "unread",
+                "#version": "version",
+                "#updatedAt": "updatedAt",
+              },
               ExpressionAttributeValues: { ":one": 1, ":unread": placement.read ? 0 : 1, ":now": now },
             },
           },

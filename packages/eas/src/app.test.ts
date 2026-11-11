@@ -129,7 +129,8 @@ describe("requests", () => {
     expect(res.headers.get("ms-asprotocolversions")).toBe("14.1");
   });
 
-  it("answers 501 for commands that aren't implemented yet", async () => {
+  it("answers 501 for commands it doesn't offer, Ping included while push is off", async () => {
+    expect((await post(db, "Search", undefined)).res.status).toBe(501);
     expect((await post(db, "Ping", undefined)).res.status).toBe(501);
   });
 

@@ -107,3 +107,8 @@ variable "web_certificate_arn" {
   default     = null
 }
 
+variable "eas_push" {
+  description = "Offer push to phones on ActiveSync. Costs about $1.90 a month while any phone uses it; off, phones fetch on their schedule."
+  type        = bool
+  default     = false
+}

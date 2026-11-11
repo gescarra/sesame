@@ -156,6 +156,7 @@ resource "awscc_lambda_web_function_revision" "eas" {
       INGEST_QUEUE_URL             = var.ingest_queue_url
       SEND_QUEUE_URL               = var.send_queue_url
       SEND_RATE_LIMIT              = tostring(var.send_rate_limit)
+      EAS_PUSH                     = tostring(var.eas_push)
     }
     telemetry_config = {
       logging_config = {

@@ -1,7 +1,8 @@
 // Test fixtures: in-memory stand-ins for the DynamoDB document client and S3, and a request helper.
 // The DynamoDB fake understands the expressions sesame's ActiveSync code writes: SET (including
 // if_not_exists), ADD and REMOVE; conditions joined by AND or OR of attribute_exists,
-// attribute_not_exists, equality and "<"; GSI1 folder queries; and transactions.
+// attribute_not_exists, equality and "<"; GSI1 folder queries, prefix queries on the table, and
+// transactions. Time is a fake clock that deps.sleep moves.
 import {
   ConditionalCheckFailedException,
   DynamoDBClient,
@@ -107,6 +108,10 @@ export class FakeDb {
   objects = new Map<string, { body: Buffer; contentType?: string }>();
   /** SQS messages sent, parsed, with their queue. */
   queued: { queue: string; job: Record<string, unknown> }[] = [];
+  /** The fake clock: deps.now reads it and deps.sleep moves it. */
+  clock = NOW;
+  /** Runs on every sleep, after the clock moves: tests use it to change things mid-Ping. */
+  onSleep: ((clock: number) => void) | undefined;
 
   constructor() {
     this.deps = {
@@ -117,11 +122,16 @@ export class FakeDb {
         ingestQueueUrl: INGEST_QUEUE,
         sendQueueUrl: SEND_QUEUE,
         sendRateLimit: 200,
+        push: false,
       },
       doc,
       s3,
       sqs,
-      now: () => NOW,
+      now: () => this.clock,
+      sleep: async (ms) => {
+        this.clock += ms;
+        this.onSleep?.(this.clock);
+      },
       log: (level, msg) => this.logs.push(`${level}: ${msg}`),
     };
     ddbMock.reset();
@@ -309,10 +319,19 @@ export class FakeDb {
     });
   }
 
-  /** GSI1 queries: "gsi1pk = :p", optionally "AND gsi1sk >= :since". */
+  /**
+   * GSI1 queries: "gsi1pk = :p", optionally "AND gsi1sk >= :since"; and on the table,
+   * "pk = :pk AND begins_with(sk, :f)".
+   */
   private query(i: QueryCommandInput) {
     const values = i.ExpressionAttributeValues as Record<string, string>;
     const condition = i.KeyConditionExpression ?? "";
+    if (!i.IndexName && condition === "pk = :pk AND begins_with(sk, :f)") {
+      const items = [...this.table(i.TableName ?? "").values()]
+        .filter((it) => it.pk === values[":pk"] && String(it.sk).startsWith(values[":f"] as string))
+        .sort((a, b) => (String(a.sk) < String(b.sk) ? -1 : 1));
+      return { Items: items.map((it) => structuredClone(it)) };
+    }
     if (i.IndexName !== "gsi1" || !/^gsi1pk = :p( AND gsi1sk >= :since)?$/.test(condition)) {
       throw new Error(`FakeDb can't run query ${condition}`);
     }

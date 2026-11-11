@@ -263,12 +263,19 @@ describe("PATCH a message", () => {
     expect(items).toHaveLength(2);
   });
 
-  it("flags through the sparse index without touching counters", async () => {
+  it("flags through the sparse index, bumping only the folder's version", async () => {
     await request(`/messages/${MSG}`, { method: "PATCH", body: JSON.stringify({ flagged: true }) });
     const [items] = transactItems();
-    expect(items).toHaveLength(1);
+    expect(items).toHaveLength(2);
     expect(items?.[0]?.Update?.UpdateExpression).toContain("gsi3pk = :gsi3pk");
     expect(items?.[0]?.Update?.ExpressionAttributeValues?.[":gsi3pk"]).toBe(`MBX#${MBX}#FLAGGED`);
+    // No counts move, but phones waiting on the folder (ActiveSync Ping) must hear of it.
+    expect(items?.[1]?.Update?.Key).toEqual(mailKeys.folderCounter(MBX, "inbox"));
+    expect(items?.[1]?.Update?.ExpressionAttributeValues).toMatchObject({
+      ":total": 0,
+      ":unread": 0,
+      ":one": 1,
+    });
 
     stored.set(MSG, message({ flagged: true }));
     ddbMock.resetHistory();
@@ -335,7 +342,12 @@ describe("DELETE a message", () => {
 
     const [items] = transactItems();
     expect(items?.[0]?.Delete?.Key).toEqual(mailKeys.message(MBX, MSG));
-    expect(items?.[1]?.Update?.ExpressionAttributeValues).toEqual({ ":total": -1, ":unread": 0 });
+    expect(items?.[1]?.Update?.ExpressionAttributeValues).toMatchObject({
+      ":total": -1,
+      ":unread": 0,
+      ":one": 1,
+    });
+    expect(items?.[1]?.Update?.UpdateExpression).toContain("#version :one");
     expect(items?.[2]?.Update).toMatchObject({
       TableName: "dir-table",
       Key: directoryKeys.mailbox(MBX),

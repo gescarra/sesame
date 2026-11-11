@@ -228,6 +228,9 @@ export interface DeviceItem {
   pendingPolicyKey?: string;
   /** Folders in the last Sync request, which an empty Sync request repeats. */
   syncCollections?: string[];
+  /** Heartbeat and folders of the last Ping, which an empty Ping repeats. */
+  pingHeartbeat?: number;
+  pingFolders?: string[];
   firstSeenAt: string;
   /** Updated at most hourly. */
   lastSeenAt: string;

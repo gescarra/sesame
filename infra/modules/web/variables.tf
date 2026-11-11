@@ -151,6 +151,12 @@ variable "eas_max_environments" {
   default     = 4
 }
 
+variable "eas_push" {
+  description = "Offer push (ActiveSync Ping) to phones. A held Ping keeps one environment active around the clock, about $1.90 a month; off, phones set to Push fetch on their own schedule instead."
+  type        = bool
+  default     = false
+}
+
 variable "admin_group" {
   description = "Cognito group whose members may use the admin console."
   type        = string

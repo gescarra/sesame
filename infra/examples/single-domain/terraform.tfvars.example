@@ -31,3 +31,8 @@ domain = "example.com"
 # certificate in web_certificate_arn and point the name at the cloudfront_domain_name output.
 # web_domain = "mail.example.com"
 
+
+# Push mail to phones on ActiveSync (iOS "Fetch New Data" set to Push). A waiting phone keeps one
+# Web Function environment active all month, about $1.90 shared by up to 64 phones. Off, phones
+# fetch on their own schedule (every 15 minutes at most) and cost a few cents each.
+# eas_push = true

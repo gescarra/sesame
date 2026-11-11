@@ -72,6 +72,7 @@ module "web" {
   ingest_queue_arn          = module.inbound.ingest_queue_arn
   send_queue_url            = module.outbound.send_queue_url
   send_queue_arn            = module.outbound.send_queue_arn
+  eas_push                  = var.eas_push
 
   providers = {
     aws           = aws

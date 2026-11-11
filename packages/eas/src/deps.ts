@@ -14,6 +14,8 @@ export interface EasConfig {
   sendQueueUrl: string;
   /** Messages one person may send per hour, shared with the web app. */
   sendRateLimit: number;
+  /** Whether Ping is offered. Off, phones set to Push fall back to fetching on a schedule. */
+  push: boolean;
 }
 
 export type Log = (level: "info" | "warn" | "error", msg: string, fields?: Record<string, unknown>) => void;
@@ -24,6 +26,8 @@ export interface Deps {
   s3: S3Client;
   sqs: SQSClient;
   now: () => number;
+  /** Waits between Ping's polls; tests replace it to move a fake clock. */
+  sleep: (ms: number) => Promise<void>;
   log: Log;
 }
 
@@ -46,6 +50,7 @@ export function loadConfig(): EasConfig {
     ingestQueueUrl: env("INGEST_QUEUE_URL"),
     sendQueueUrl: env("SEND_QUEUE_URL"),
     sendRateLimit: Number(process.env.SEND_RATE_LIMIT ?? 200),
+    push: process.env.EAS_PUSH === "true",
   };
 }
 
@@ -58,6 +63,7 @@ export async function createDeps(): Promise<Deps> {
     s3: new S3Client({}),
     sqs: new SQSClient({}),
     now: Date.now,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     log,
   };
 }

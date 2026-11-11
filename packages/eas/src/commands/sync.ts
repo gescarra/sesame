@@ -13,7 +13,7 @@ import {
 import { updateDevice } from "../auth.ts";
 import { parseServerId, serverId } from "../ids.ts";
 import { changeData, chooseBody, emailData } from "../items.ts";
-import { listWindow } from "../mailbox.ts";
+import { folderVersion, listWindow } from "../mailbox.ts";
 import type { CommandContext, Handler } from "../protocol.ts";
 import {
   DEFAULT_OPTIONS,
@@ -30,6 +30,7 @@ import {
   StateConflictError,
   type SyncOptions,
   saveState,
+  unconfirmed,
   unpack,
   windowStart,
 } from "../state.ts";
@@ -75,6 +76,21 @@ export function diffFolder(snapshot: Snapshot, items: MessageItem[]): FolderDiff
   }
   const deletes = [...snapshot.keys()].filter((u) => !present.has(u));
   return { deletes, changes, adds };
+}
+
+/**
+ * The folder with the phone's own changes from this request laid over it. GSI1 is eventually
+ * consistent, so a message the phone just deleted or marked read may still show as it was, and
+ * the diff would send the old state straight back. `touched` holds each message's state after
+ * the change, or null when it's gone.
+ */
+function overlay(items: MessageItem[], touched: Map<string, MessageItem | null>, folder: SystemFolder) {
+  if (touched.size === 0) return items;
+  return items.flatMap((m) => {
+    if (!touched.has(m.messageUlid)) return [m];
+    const now = touched.get(m.messageUlid);
+    return now && now.folder === folder ? [now] : [];
+  });
 }
 
 export async function folderItems(ctx: CommandContext, folder: SystemFolder, options: SyncOptions) {
@@ -174,6 +190,7 @@ async function syncCollection(ctx: CommandContext, req: CollectionRequest, budge
   const options: SyncOptions = { ...state.options, ...req.options };
   const snapshot: Snapshot = new Map(base);
   const responses: Element[] = [];
+  const touched = new Map<string, MessageItem | null>();
 
   for (const command of req.commands) {
     const id = childText(command, "AirSync:ServerId");
@@ -199,9 +216,11 @@ async function syncCollection(ctx: CommandContext, req: CollectionRequest, budge
           );
           // A message moved elsewhere meanwhile is a delete in this folder's next diff.
           if (m.folder === folder) snapshot.set(inFolder, flagsOf(m));
+          touched.set(inFolder, m);
         } catch (err) {
           if (!(err instanceof MessageNotFoundError)) throw err;
           snapshot.delete(inFolder);
+          touched.set(inFolder, null);
           responses.push(
             el("AirSync:Change", [
               el("AirSync:ServerId", id ?? ""),
@@ -218,6 +237,7 @@ async function syncCollection(ctx: CommandContext, req: CollectionRequest, budge
             if (!(err instanceof MessageNotFoundError)) throw err;
           });
           snapshot.delete(inFolder);
+          touched.set(inFolder, null);
         }
         break;
       }
@@ -259,8 +279,13 @@ async function syncCollection(ctx: CommandContext, req: CollectionRequest, budge
 
   const commands: Element[] = [];
   let more = false;
+  // The version is read after the phone's own changes and before listing, so it covers both:
+  // Ping won't wake for what the phone just did, nor miss what lands after this read.
+  let seen: { version: number; updatedAt: number; at: number } | undefined;
   if (req.getChanges) {
-    const diff = diffFolder(snapshot, await folderItems(ctx, folder, options));
+    seen = { ...(await folderVersion(deps, session.mailboxId, folder)), at: deps.now() };
+    const items = overlay(await folderItems(ctx, folder, options), touched, folder);
+    const diff = diffFolder(snapshot, items);
     let room = req.windowSize;
     for (const ulid of diff.deletes) {
       if (room === 0) break;
@@ -302,6 +327,13 @@ async function syncCollection(ctx: CommandContext, req: CollectionRequest, budge
   }
 
   const optionsChanged = JSON.stringify(options) !== JSON.stringify(state.options);
+  const version = seen ? { version: seen.version, versionAt: seen.at } : {};
+  // Worth a write on its own when Ping would otherwise keep waking for a version already seen.
+  const versionChanged =
+    seen !== undefined &&
+    (seen.version !== state.version ||
+      state.versionAt === undefined ||
+      unconfirmed(seen.updatedAt, state.versionAt));
   let responseKey = effectiveKey;
   if (commands.length || req.commands.length) {
     responseKey = nextKey(state.key);
@@ -312,6 +344,7 @@ async function syncCollection(ctx: CommandContext, req: CollectionRequest, budge
       prevKey: effectiveKey,
       prevSnapshot: pack(base),
       options,
+      ...version,
     };
     try {
       await saveState(deps, next, state);
@@ -321,8 +354,8 @@ async function syncCollection(ctx: CommandContext, req: CollectionRequest, budge
       deps.log("warn", "ActiveSync sync state changed concurrently", { folder });
       return collectionElement(effectiveKey, folder, SyncStatus.InvalidSyncKey);
     }
-  } else if (optionsChanged) {
-    await saveState(deps, { ...state, options }, state).catch((err) => {
+  } else if (optionsChanged || versionChanged) {
+    await saveState(deps, { ...state, options, ...version }, state).catch((err) => {
       if (!(err instanceof StateConflictError)) throw err;
     });
   }

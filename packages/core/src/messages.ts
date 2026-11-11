@@ -103,15 +103,25 @@ export async function changeMessage(
       update += " REMOVE gsi3pk, gsi3sk";
     }
 
-    const counters = counterDeltas(cur, next).map(([folder, total, unread]) => ({
+    // A flag-only change moves no counts, but still bumps the folder's version so phones
+    // waiting on it (ActiveSync Ping) hear about it.
+    const deltas = counterDeltas(cur, next);
+    if (deltas.length === 0) deltas.push([cur.folder, 0, 0]);
+    const counters = deltas.map(([folder, total, unread]) => ({
       Update: {
         TableName: store.config.mailTable,
         Key: mailKeys.folderCounter(mailboxId, folder),
-        UpdateExpression: "ADD #total :total, #unread :unread SET #updatedAt = :now",
-        ExpressionAttributeNames: { "#total": "total", "#unread": "unread", "#updatedAt": "updatedAt" },
+        UpdateExpression: "ADD #total :total, #unread :unread, #version :one SET #updatedAt = :now",
+        ExpressionAttributeNames: {
+          "#total": "total",
+          "#unread": "unread",
+          "#version": "version",
+          "#updatedAt": "updatedAt",
+        },
         ExpressionAttributeValues: {
           ":total": total,
           ":unread": unread,
+          ":one": 1,
           ":now": new Date(store.now()).toISOString(),
         },
       },
@@ -190,9 +200,19 @@ export async function removeMessage(
             Update: {
               TableName: store.config.mailTable,
               Key: mailKeys.folderCounter(mailboxId, "trash"),
-              UpdateExpression: "ADD #total :total, #unread :unread",
-              ExpressionAttributeNames: { "#total": "total", "#unread": "unread" },
-              ExpressionAttributeValues: { ":total": -1, ":unread": cur.read ? 0 : -1 },
+              UpdateExpression: "ADD #total :total, #unread :unread, #version :one SET #updatedAt = :now",
+              ExpressionAttributeNames: {
+                "#total": "total",
+                "#unread": "unread",
+                "#version": "version",
+                "#updatedAt": "updatedAt",
+              },
+              ExpressionAttributeValues: {
+                ":total": -1,
+                ":unread": cur.read ? 0 : -1,
+                ":one": 1,
+                ":now": new Date(store.now()).toISOString(),
+              },
             },
           },
           {

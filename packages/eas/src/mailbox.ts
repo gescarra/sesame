@@ -1,6 +1,6 @@
 // Reads from the mailbox: a folder's messages back to a date, and message objects in S3.
 import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { type MessageItem, mailKeys, type SystemFolder, ulidFloor } from "@sesame/core";
 import type { Deps } from "./deps.ts";
 
@@ -35,6 +35,46 @@ export async function listWindow(
     ExclusiveStartKey = res.LastEvaluatedKey;
   } while (ExclusiveStartKey && items.length < limit);
   return items;
+}
+
+/**
+ * A folder's change signal: ingest and every message change bump `version` on the folder
+ * counter, in the same transaction as the message. `updatedAt` is when (ms; 0 if never).
+ */
+export interface FolderVersion {
+  version: number;
+  updatedAt: number;
+}
+
+function toVersion(item: Record<string, unknown> | undefined): FolderVersion {
+  return {
+    version: Number(item?.version ?? 0),
+    updatedAt: item?.updatedAt ? Date.parse(String(item.updatedAt)) : 0,
+  };
+}
+
+/** One folder's version, read consistently: Sync stores it as the point the phone has seen. */
+export async function folderVersion(deps: Deps, mailboxId: string, folder: SystemFolder) {
+  const res = await deps.doc.send(
+    new GetCommand({
+      TableName: deps.config.mailTable,
+      Key: mailKeys.folderCounter(mailboxId, folder),
+      ConsistentRead: true,
+    }),
+  );
+  return toVersion(res.Item);
+}
+
+/** Every folder's version in one small query: what Ping polls. */
+export async function folderVersions(deps: Deps, mailboxId: string): Promise<Map<string, FolderVersion>> {
+  const res = await deps.doc.send(
+    new QueryCommand({
+      TableName: deps.config.mailTable,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :f)",
+      ExpressionAttributeValues: { ":pk": mailKeys.folderCounter(mailboxId, "").pk, ":f": "FOLDER#" },
+    }),
+  );
+  return new Map((res.Items ?? []).map((i) => [String(i.sk).slice("FOLDER#".length), toVersion(i)]));
 }
 
 export class ObjectMissingError extends Error {}

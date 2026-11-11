@@ -133,10 +133,26 @@ export interface FolderState {
   prevKey?: string;
   prevSnapshot?: Uint8Array;
   options: SyncOptions;
+  /**
+   * The folder counter's version when the last Sync read it, and when that was (ms). Ping
+   * answers once the version moves past it. Absent until a Sync has read it.
+   */
+  version?: number;
+  versionAt?: number;
   /** Bumped on every write; writes are conditional on the revision they read. */
   rev: number;
   updatedAt: string;
 }
+
+/**
+ * How long a change may take to reach GSI1 after its transaction. A Sync that read a version
+ * this soon after it changed may have listed the folder without that change, so Ping treats
+ * the stored version as unconfirmed until this has passed.
+ */
+export const INDEX_LAG_MS = 3000;
+
+/** Whether a version read at `versionAt` may not cover the change made at `updatedAt`. */
+export const unconfirmed = (updatedAt: number, versionAt: number) => updatedAt > versionAt - INDEX_LAG_MS;
 
 export class StateConflictError extends Error {}
 
@@ -154,6 +170,28 @@ export async function loadState(
     }),
   );
   return res.Item as FolderState | undefined;
+}
+
+/** Just what Ping compares, without the snapshots, which can run to hundreds of kilobytes. */
+export async function loadVersion(
+  deps: Deps,
+  mailboxId: string,
+  deviceId: string,
+  folder: SystemFolder,
+): Promise<Pick<FolderState, "version" | "versionAt"> | undefined> {
+  const res = await deps.doc.send(
+    new GetCommand({
+      TableName: deps.config.mailTable,
+      Key: mailKeys.easState(mailboxId, deviceId, folder),
+      ProjectionExpression: "pk, #version, versionAt",
+      ExpressionAttributeNames: { "#version": "version" },
+    }),
+  );
+  if (!res.Item) return undefined;
+  const out: Pick<FolderState, "version" | "versionAt"> = {};
+  if (typeof res.Item.version === "number") out.version = res.Item.version;
+  if (typeof res.Item.versionAt === "number") out.versionAt = res.Item.versionAt;
+  return out;
 }
 
 export function firstState(

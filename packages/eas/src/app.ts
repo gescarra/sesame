@@ -8,6 +8,7 @@ import { folderSync } from "./commands/folderSync.ts";
 import { getItemEstimate } from "./commands/getItemEstimate.ts";
 import { itemOperations } from "./commands/itemOperations.ts";
 import { moveItems } from "./commands/moveItems.ts";
+import { ping } from "./commands/ping.ts";
 import { provision } from "./commands/provision.ts";
 import { sendMail, smartForward, smartReply } from "./commands/sendMail.ts";
 import { settings } from "./commands/settings.ts";
@@ -55,12 +56,13 @@ const COMMANDS: Record<string, Command> = {
   SendMail: { root: "ComposeMail:SendMail", status: "ComposeMail:Status", run: sendMail },
   SmartReply: { root: "ComposeMail:SmartReply", status: "ComposeMail:Status", run: smartReply },
   SmartForward: { root: "ComposeMail:SmartForward", status: "ComposeMail:Status", run: smartForward },
-  Ping: { root: "Ping:Ping", status: "Ping:Status" },
+  Ping: { root: "Ping:Ping", status: "Ping:Status", run: ping },
 };
 
-export const advertisedCommands = () =>
+/** Commands with a handler, less Ping when push is off: phones then fetch on their schedule. */
+export const advertisedCommands = (push: boolean) =>
   Object.entries(COMMANDS)
-    .filter(([, c]) => c.run)
+    .filter(([name, c]) => c.run && (push || name !== "Ping"))
     .map(([name]) => name);
 
 export function createApp(loadDeps: () => Promise<Deps>) {
@@ -85,7 +87,7 @@ export function createApp(loadDeps: () => Promise<Deps>) {
       });
       if (!session) return unauthorized(c);
       c.header("MS-ASProtocolVersions", PROTOCOL_VERSION);
-      c.header("MS-ASProtocolCommands", advertisedCommands().join(","));
+      c.header("MS-ASProtocolCommands", advertisedCommands(deps.config.push).join(","));
       c.header("Allow", "OPTIONS,POST");
       c.header("Public", "OPTIONS,POST");
       return c.body(null, 200);
@@ -115,7 +117,7 @@ export function createApp(loadDeps: () => Promise<Deps>) {
     if (!session?.device) return unauthorized(c);
 
     const command = COMMANDS[req.cmd];
-    if (!command?.run) {
+    if (!command?.run || (req.cmd === "Ping" && !deps.config.push)) {
       deps.log("warn", "ActiveSync command not implemented", fields);
       return c.text("Not Implemented", 501);
     }
