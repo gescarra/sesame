@@ -63,6 +63,48 @@ While anyone has sesame open, it polls folder counts every 60 seconds, which kee
 
 CloudFront stays within its free tier (1 TB and 10 million requests a month) for any realistic mail volume. Cognito charges nothing for the first 50 federated (SAML or OIDC) monthly active users, then $0.015 each. Native Cognito users on the Lite tier are free up to 10,000.
 
+## Phones (ActiveSync)
+
+Phones reach the `eas` Web Function, which bills like the API: active CPU, memory while an environment is active, and requests. These figures are estimates from the rates above and the API's measured 100 ms and 200 MB. They haven't been measured for ActiveSync yet.
+
+### Without push: a few cents per phone
+
+iPhone Mail set to **Fetch** checks every 15 minutes at most, or about 2,900 times a month, with one `Sync` each time. More happen while Mail is open.
+
+| Item                          | Per phone, monthly | Assumption                                                         |
+| ----------------------------- | ------------------ | ------------------------------------------------------------------ |
+| Web Function CPU and requests | about $0.01        | 2,900 requests at 100 ms                                           |
+| Environment memory            | under $0.03        | 1–10 s of active environment per fetch (to be measured)            |
+| DynamoDB reads                | $0.01–0.70         | Each `Sync` reads the whole synced window of the folder; see below |
+
+Every `Sync` lists the messages in the window the phone syncs (iOS's **Mail Days to Sync**), so the read cost grows with that window. Message items are 1–2 KB, and reads cost $0.125 per million read units:
+
+- **1 week, about 100 messages:** about 20 read units per `Sync`, under $0.01 a month.
+- **No limit, 10,000 messages (the most a phone syncs per folder):** about 1,900 read units per `Sync`, about $0.70 a month.
+
+A phone's first sync of a folder also reads each message's MIME from S3, about $0.0004 per 1,000 messages in requests.
+
+### With push: about $1.90 a month, shared
+
+With `eas_push = true` and a phone set to **Push**, the phone keeps a `Ping` request open around the clock. Each one lasts 10 seconds less than CloudFront's origin read timeout (`eas_origin_read_timeout`): 50 seconds by default, or 170 with the timeout raised to 180. That keeps one environment active all month:
+
+| Item                                     | Monthly                                           |
+| ---------------------------------------- | ------------------------------------------------- |
+| Environment memory, all month            | about $1.90 (0.2 GB × 2.6 million s × $0.0000037) |
+| Folder checks (one query every 20 s)     | under $0.01 per phone                             |
+| CPU for those checks and `Ping` requests | about $0.05 per phone at 50 s, $0.02 at 170 s     |
+
+One environment holds up to 64 waiting phones, so the $1.90 is shared; more environments start only past that. On classic Lambda, which bills wall-clock time, each waiting phone would cost about $4.30 a month instead.
+
+Two things to confirm on a real deployment before relying on the figure:
+
+- whether an environment that holds only idle `Ping` requests bills memory all month, as assumed here;
+- how many environments iOS's request pattern keeps active.
+
+To measure it, enable push for one phone for a week and compare the Web Function's cost in Cost Explorer (filtered by `app = sesame`) with a week without.
+
+If push isn't worth it, leave `eas_push` off. Phones set to Push then fall back to fetching.
+
 ## A worked example
 
 Take 10 users with 5,000 received and 2,000 sent messages a month, 1,500 of them to outside recipients.
@@ -78,6 +120,8 @@ Take 10 users with 5,000 received and 2,000 sent messages a month, 1,500 of them
 | CloudWatch Logs                          | $0.05           |
 | Route 53 hosted zone                     | $0.50           |
 | **Total**                                | **≈ $3.65**     |
+
+With five of them also on iPhones set to Fetch, add about $0.15. With push enabled and used, add about $2.
 
 ## Keeping an eye on it
 

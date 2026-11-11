@@ -90,8 +90,10 @@ export async function authenticate(deps: Deps, input: AuthInput): Promise<Sessio
     return undefined;
   }
   // A device that has signed in before keeps working while its username or IP is locked out,
-  // so guessing can't lock out a working phone.
-  if (!device && (await isLockedOut(deps, subjects))) {
+  // so guessing can't lock out a working phone. OPTIONS carries no DeviceId, so there a
+  // password that has signed in before stands in for a known device.
+  const known = input.device ? device !== undefined : password.lastUsedAt !== undefined;
+  if (!known && (await isLockedOut(deps, subjects))) {
     deps.log("warn", "ActiveSync sign-in refused: too many failures");
     return undefined;
   }

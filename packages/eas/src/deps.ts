@@ -16,6 +16,11 @@ export interface EasConfig {
   sendRateLimit: number;
   /** Whether Ping is offered. Off, phones set to Push fall back to fetching on a schedule. */
   push: boolean;
+  /**
+   * The longest Ping heartbeat, in seconds. CloudFront gives up on an origin that hasn't
+   * answered within its origin read timeout, so a held Ping must answer well before that.
+   */
+  maxHeartbeat: number;
 }
 
 export type Log = (level: "info" | "warn" | "error", msg: string, fields?: Record<string, unknown>) => void;
@@ -51,6 +56,7 @@ export function loadConfig(): EasConfig {
     sendQueueUrl: env("SEND_QUEUE_URL"),
     sendRateLimit: Number(process.env.SEND_RATE_LIMIT ?? 200),
     push: process.env.EAS_PUSH === "true",
+    maxHeartbeat: Number(process.env.EAS_MAX_HEARTBEAT ?? 50),
   };
 }
 

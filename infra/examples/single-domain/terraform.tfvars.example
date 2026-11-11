@@ -36,3 +36,8 @@ domain = "example.com"
 # Web Function environment active all month, about $1.90 shared by up to 64 phones. Off, phones
 # fetch on their own schedule (every 15 minutes at most) and cost a few cents each.
 # eas_push = true
+#
+# Each push request lasts 10 seconds less than CloudFront's origin read timeout: 50 seconds by
+# default. For longer ones (fewer requests, less battery), raise the CloudFront quota "Response
+# timeout per origin" to 180 in Service Quotas first, then:
+# eas_origin_read_timeout = 180

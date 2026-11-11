@@ -1,7 +1,9 @@
-# ActiveSync for phones: a third Web Function that iPhones call directly, not through
-# CloudFront, because a Ping long poll outlasts CloudFront's origin timeout. The endpoint uses
-# ApplicationManaged auth: the function checks Basic auth with app passwords itself.
-# It runs with its own role and limits, so password guessing can't starve the web app.
+# ActiveSync for phones: a third Web Function, behind the same CloudFront distribution as the
+# API at /Microsoft-Server-ActiveSync and /autodiscover. Lambda refuses resource policies that
+# make a Web Function public, so the endpoint uses IamAuth like the API's: CloudFront signs each
+# request with origin access control and passes the phone's own Basic credentials through,
+# which the function checks against app passwords. It runs with its own role and limits, so
+# password guessing can't starve the web app.
 
 locals {
   eas_function_name = "${var.name}-eas"
@@ -144,8 +146,9 @@ resource "awscc_lambda_web_function_revision" "eas" {
 
   service_config = {
     execution_role_arn = aws_iam_role.eas.arn
-    # Ping holds a request open for up to 840 seconds; the rest answer in well under 30.
-    timeout_seconds                 = 900
+    # Longer than CloudFront ever waits (eas_origin_read_timeout, at most 180 s): a held Ping
+    # answers before that, and every other command in well under 30 seconds.
+    timeout_seconds                 = 300
     max_concurrency_per_environment = 64
     environment_variables = {
       AWS_LAMBDA_NODEJS_ENTRYPOINT = "server.mjs"
@@ -157,6 +160,8 @@ resource "awscc_lambda_web_function_revision" "eas" {
       SEND_QUEUE_URL               = var.send_queue_url
       SEND_RATE_LIMIT              = tostring(var.send_rate_limit)
       EAS_PUSH                     = tostring(var.eas_push)
+      # Ping must answer before CloudFront gives up on the origin.
+      EAS_MAX_HEARTBEAT = tostring(var.eas_origin_read_timeout - 10)
     }
     telemetry_config = {
       logging_config = {
@@ -178,8 +183,8 @@ resource "awscc_lambda_web_function_endpoint" "eas" {
   function_name = awscc_lambda_web_function.eas.function_name
   endpoint_name = "live"
   endpoint_type = "HomeRegion"
-  # Phones call this endpoint directly; the function signs every request in itself.
-  auth_type = "ApplicationManaged"
+  # Only CloudFront can call it; phones sign in to the function itself with app passwords.
+  auth_type = "IamAuth"
 
   revision_weights = [{
     revision_id = awscc_lambda_web_function_revision.eas.revision_id
@@ -191,19 +196,98 @@ resource "awscc_lambda_web_function_endpoint" "eas" {
   throttle_config = { rate_limit = 100 }
 }
 
-# Lets anyone reach the endpoint, as a phone must; the function itself turns away requests
-# without a valid app password. To confirm on first deploy: whether ApplicationManaged
-# endpoints need this policy at all (function URLs with AuthType NONE do).
+# Lets this distribution, and only it, call the endpoint, as for the API.
 resource "awscc_lambda_resource_policy" "eas" {
   resource_arn = awscc_lambda_web_function.eas.function_arn
   policy_document = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "AllowPublicActiveSync"
+      Sid       = "AllowCloudFrontOAC"
       Effect    = "Allow"
-      Principal = "*"
+      Principal = { Service = "cloudfront.amazonaws.com" }
       Action    = "lambda:InvokeWebFunctionEndpoint"
       Resource  = awscc_lambda_web_function_endpoint.eas.endpoint_arn
+      Condition = { StringEquals = { "aws:SourceArn" = aws_cloudfront_distribution.this.arn } }
     }]
   })
+}
+
+# --- CloudFront in front of the endpoint ---------------------------------------------
+
+# Phones send Basic credentials on every request. CloudFront forwards Authorization only when
+# it's part of the cache key, so this policy keys on it (and on the query string, which carries
+# the command and device). Nothing is cached: the function answers with no-store, and the
+# default TTL is 0.
+resource "aws_cloudfront_cache_policy" "eas" {
+  name        = "${var.name}-eas"
+  default_ttl = 0
+  min_ttl     = 0
+  max_ttl     = 1
+  parameters_in_cache_key_and_forwarded_to_origin {
+    enable_accept_encoding_gzip   = false
+    enable_accept_encoding_brotli = false
+    headers_config {
+      header_behavior = "whitelist"
+      headers { items = ["Authorization"] }
+    }
+    query_strings_config {
+      query_string_behavior = "all"
+    }
+    cookies_config {
+      cookie_behavior = "none"
+    }
+  }
+}
+
+# The ActiveSync headers, and CloudFront-Viewer-Address for per-IP sign-in throttling (the
+# start of X-Forwarded-For is whatever the client sent). Never Host: the endpoint answers 404
+# for any host but its own.
+resource "aws_cloudfront_origin_request_policy" "eas" {
+  name = "${var.name}-eas"
+  headers_config {
+    header_behavior = "whitelist"
+    headers {
+      items = [
+        "Content-Type",
+        "User-Agent",
+        "MS-ASProtocolVersion",
+        "X-MS-PolicyKey",
+        "MS-ASAcceptMultiPart",
+        "X-Forwarded-Host",
+        "CloudFront-Viewer-Address",
+      ]
+    }
+  }
+  query_strings_config {
+    query_string_behavior = "all"
+  }
+  cookies_config {
+    cookie_behavior = "none"
+  }
+}
+
+# Autodiscover answers with the host the phone asked; Host itself can't reach the origin.
+resource "aws_cloudfront_function" "eas_host" {
+  name    = "${var.name}-eas-host"
+  runtime = "cloudfront-js-2.0"
+  publish = true
+  code    = <<-EOT
+    function handler(event) {
+      var request = event.request;
+      request.headers["x-forwarded-host"] = { value: request.headers.host.value };
+      return request;
+    }
+  EOT
+}
+
+locals {
+  eas_origin_id = "eas"
+  # CloudFront path patterns are case-sensitive. iOS uses these spellings; Outlook-style
+  # clients capitalise Autodiscover.
+  eas_paths = {
+    "/Microsoft-Server-ActiveSync*" = false
+    "/microsoft-server-activesync*" = false
+    "/autodiscover/*"               = true
+    "/Autodiscover/*"               = true
+  }
 }

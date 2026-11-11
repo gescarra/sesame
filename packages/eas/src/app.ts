@@ -1,9 +1,17 @@
-// The ActiveSync endpoint: OPTIONS and POST on /Microsoft-Server-ActiveSync.
+// The ActiveSync endpoint: OPTIONS and POST on /Microsoft-Server-ActiveSync, and Autodiscover.
+// Phones reach it through CloudFront, which signs each request to the IAM-auth endpoint and
+// passes the phone's own Basic credentials through untouched.
 // Every request signs in with Basic auth; every command but Provision needs the device's
 // policy key; bodies are WBXML both ways.
 import { createHash } from "node:crypto";
 import { type Context, Hono } from "hono";
 import { authenticate } from "./auth.ts";
+import {
+  AUTODISCOVER_PATH,
+  autodiscoverResponse,
+  MAX_AUTODISCOVER_BYTES,
+  requestedAddress,
+} from "./autodiscover.ts";
 import { folderSync } from "./commands/folderSync.ts";
 import { getItemEstimate } from "./commands/getItemEstimate.ts";
 import { itemOperations } from "./commands/itemOperations.ts";
@@ -70,6 +78,7 @@ export function createApp(loadDeps: () => Promise<Deps>) {
   const app = new Hono();
 
   app.all("*", async (c) => {
+    if (c.req.path.toLowerCase() === AUTODISCOVER_PATH) return autodiscover(c);
     if (c.req.path.toLowerCase() !== PATH) return c.text("Not Found", 404);
     pending ??= loadDeps().catch((err) => {
       pending = undefined;
@@ -83,7 +92,7 @@ export function createApp(loadDeps: () => Promise<Deps>) {
     if (c.req.method === "OPTIONS") {
       const session = await authenticate(deps, {
         authorization: c.req.header("authorization"),
-        ip: clientIp(c),
+        ip: requestIp(c),
       });
       if (!session) return unauthorized(c);
       c.header("MS-ASProtocolVersions", PROTOCOL_VERSION);
@@ -111,7 +120,7 @@ export function createApp(loadDeps: () => Promise<Deps>) {
     const userAgent = c.req.header("user-agent");
     const session = await authenticate(deps, {
       authorization: c.req.header("authorization"),
-      ip: clientIp(c),
+      ip: requestIp(c),
       device: userAgent ? { ...device, userAgent } : device,
     });
     if (!session?.device) return unauthorized(c);
@@ -158,6 +167,24 @@ export function createApp(loadDeps: () => Promise<Deps>) {
   return app;
 }
 
+/** Phones POST an XML request; a GET (some clients probe with one) gets the same answer. */
+async function autodiscover(c: Context) {
+  if (c.req.method !== "POST" && c.req.method !== "GET") {
+    return c.text("Method Not Allowed", 405, { Allow: "GET,POST" });
+  }
+  if (Number(c.req.header("content-length") ?? 0) > MAX_AUTODISCOVER_BYTES) {
+    return c.text("Request Entity Too Large", 413);
+  }
+  const body = c.req.method === "POST" ? (await c.req.text()).slice(0, MAX_AUTODISCOVER_BYTES) : "";
+  // CloudFront drops the viewer's Host on its way to the endpoint; a viewer-request function
+  // copies it to X-Forwarded-Host first, so the answer names the host the phone asked.
+  const host = c.req.header("x-forwarded-host") || new URL(c.req.url).host;
+  return c.body(autodiscoverResponse(host, requestedAddress(body)), 200, {
+    "Content-Type": "text/xml; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+}
+
 function wbxml(c: Context, root: Element) {
   return c.body(new Uint8Array(encode(root)), 200, { "Content-Type": WBXML_TYPE });
 }
@@ -180,10 +207,19 @@ function unauthorized(c: Context) {
   return c.body(null, 401, { "WWW-Authenticate": 'Basic realm="sesame"' });
 }
 
-/** The first X-Forwarded-For hop, which the Web Function front end sets to the client. */
-function clientIp(c: Context): string {
-  return c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+/**
+ * The phone's address. Requests come through CloudFront, which sends the viewer's address and
+ * port in CloudFront-Viewer-Address. X-Forwarded-For starts with whatever the client put there,
+ * so it's only a fallback for running the server without CloudFront.
+ */
+export function clientIp(viewerAddress: string | undefined, forwardedFor: string | undefined): string {
+  const viewer = viewerAddress?.trim().replace(/:\d+$/, "");
+  if (viewer) return viewer;
+  return forwardedFor?.split(",")[0]?.trim() || "unknown";
 }
+
+const requestIp = (c: Context) =>
+  clientIp(c.req.header("cloudfront-viewer-address"), c.req.header("x-forwarded-for"));
 
 /** Device ids are stable identifiers, so logs carry a short hash instead. */
 function hashId(id: string): string {

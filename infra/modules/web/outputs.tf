@@ -43,8 +43,8 @@ output "admin_log_group" {
 
 
 output "eas_server" {
-  description = "Host name phones use as the Exchange server."
-  value       = awscc_lambda_web_function_endpoint.eas.domain_name
+  description = "Host name phones use as the Exchange server: the web app's own."
+  value       = trimprefix(local.public_url, "https://")
 }
 
 output "eas_log_group" {

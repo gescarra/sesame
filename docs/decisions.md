@@ -195,3 +195,46 @@ Why not delete everything from the admin console:
 - **Safety.** The purge refuses to run for a mailbox that exists in the directory, so a stray job can't empty a live mailbox.
 
 Mail that a deleted mailbox had already queued still goes out. The sender and `ses-events` check whether the mailbox exists when its Sent copy is missing: if it was deleted, they drop the update instead of retrying it into a dead-letter queue.
+
+## 22. ActiveSync on its own Web Function, with app passwords
+
+iPhone Mail syncs with Exchange servers over Exchange ActiveSync (EAS). sesame serves EAS 14.1, which current iOS speaks, for mail only. IMAP would also work for reading, but sending would then need SMTP submission, which means a long-running server.
+
+- **Its own function, behind the same distribution.** The plan was a public endpoint with `ApplicationManaged` auth, called directly, so that a held `Ping` could outlast CloudFront's origin timeout. On first deploy Lambda refused the resource policy, because it would make the function public. The `eas` endpoint therefore uses `IamAuth`, and the app's distribution routes `/Microsoft-Server-ActiveSync*` and `/autodiscover/*` to it with origin access control. Phones use the app's own host name as the server, with its certificate. The function has its own role (the mail table, the directory items it needs, `mbx/*`, `raw/outbound/*` and the two outbound queues) and its own scaling and rate limits.
+- **Getting the phone's request through.** `always-amz-auth` signing leaves the viewer's `Authorization` header alone, but CloudFront forwards it only when it's in the cache key. The eas behaviors therefore use their own cache policy keyed on `Authorization` and the query string; nothing is cached, because the function answers with `no-store`. Their origin request policy forwards the ActiveSync headers and `CloudFront-Viewer-Address`, which per-IP throttling uses instead of the client-controlled start of `X-Forwarded-For`. CloudFront path patterns are case-sensitive, so both spellings of each path are routed.
+- **App passwords, not Cognito.** iOS supports OAuth for EAS only against Microsoft's identity platform, so phones send HTTP Basic credentials on every request. Users create app passwords on the **Phones and devices** page. Each one opens one mailbox, is 24 random base32 characters (about 120 bits) and is stored as a SHA-256 hash under `APPPW#<hash>`. That entropy makes a slow hash unnecessary, so a sign-in is one `GetItem`.
+- **Access follows membership.** Every request re-checks the owner's membership of the mailbox, so removing a member cuts off their phones at once. Disabling someone in the identity provider doesn't, because app passwords don't go through it.
+- **Throttling.** Failed sign-ins are counted per username and per source IP in 15-minute windows. After 10, correct passwords are refused too, but only for devices the server hasn't seen (and, for `OPTIONS`, which carries no device id, for passwords never used). A working phone therefore can't be locked out by someone guessing.
+- **Device records.** The first request from each `DeviceId` creates `DEVICE#<email>` / `<deviceId>`, shown on the Phones and devices page. `Provision` hands out an empty policy and a policy key that every later command must present.
+- **Autodiscover.** `/autodiscover/autodiscover.xml` answers every request with the ActiveSync URL on the host the phone asked, and reads nothing. A CloudFront function copies the viewer's `Host` to `X-Forwarded-Host`, because `Host` itself can't reach the endpoint. The example deployment publishes `_autodiscover._tcp.<domain>` as an SRV record pointing at the app's host. Whether iOS uses the SRV record is still to be confirmed; typing the server name always works.
+
+## 23. Sync state is a snapshot per phone and folder
+
+Exchange tracks changes per item; sesame has no change log. Instead, each phone's state for a folder is the set of messages it holds, as 17 bytes each: the ulid and a byte of read and flagged bits. Each `Sync` diffs that snapshot against the folder as it is now.
+
+- **Where it lives:** `MBX#<id>` / `EAS#<deviceId>#<folder>` in the mail table, so purging a mailbox removes it. Nothing else in sesame had to change to produce changes: ingest, the API and the phone all just change messages.
+- **Retries:** the previous sync key and snapshot are kept, so a request whose response was lost is answered again from the same starting point. A key that matches neither makes the phone start the folder again (status 3).
+- **Concurrency:** writes are conditional on a revision counter, so two requests for the same folder can't both advance it. `MoveItems` edits both folders' snapshots without changing their keys, which is why the condition is the revision, not the key.
+- **Limit:** both snapshots must fit in one 400 KB item, so a phone syncs at most the newest 10,000 messages of a folder (the design assumed 20,000). Larger folders would need the snapshot in S3.
+- **The phone's own changes:** the folder listing comes from GSI1, which is eventually consistent. A `Sync` lays the phone's changes from the same request over the listing, so a message it just deleted or marked read isn't sent back as it was.
+- **Bodies:** the original MIME from S3, truncated to the size the phone asks for, or the extracted text or HTML for clients that don't take MIME. A response stops adding messages at 8 MB of bodies and tells the phone more are available.
+
+## 24. Push polls folder versions, and is off by default
+
+`Ping` is a long poll. No request can reach the one environment holding a given phone's `Ping`, so ingest can't notify it. Instead the held request polls a version on each folder counter every 20 seconds.
+
+- **The version:** ingest, every message change (flag-only changes included) and purges from Trash add 1 to `version` on `MBX#<id>` / `FOLDER#<name>`, in the same transaction as the message.
+- **No missed changes:** each `Sync` records the version it read, after applying the phone's own changes and before listing the folder, and `Ping` compares against that. Mail that lands between the two still wakes the phone, and the phone's own changes don't.
+- **Index lag:** if a `Sync` read the version within 3 seconds of a change, its listing may have missed that change, so `Ping` wakes the phone once more 3 seconds after it. That costs an empty round trip after such changes and nothing else.
+- **Heartbeat:** 10 seconds less than CloudFront's origin read timeout (`eas_origin_read_timeout`), so 50 seconds by default. That's under EAS's own 60-second minimum, so the server lowers its minimum to match; whether iOS accepts heartbeats that short is still to be confirmed. With push on, request the CloudFront quota increase for an origin response timeout of 180 seconds and set `eas_origin_read_timeout = 180`, for 170-second heartbeats.
+- **Cost:** a held `Ping` keeps one environment active, about $1.90 a month for up to 64 phones (see [cost](cost.md#phones-activesync)). That ends scale-to-zero for the eas function, so `eas_push` defaults to `false`: `Ping` isn't advertised and phones set to Push fetch on their schedule instead.
+
+## 25. Phones send through the same routing as the web app
+
+The web app builds MIME from a form; a phone sends finished MIME. The checks and routing that used to sit inside the API's send handler moved to `queueOutgoing` in `@sesame/core`, which both call (decision 14):
+
+- **Same rules:** From must be one of the mailbox's addresses, recipients in local domains must exist and have room, suppressed addresses are refused, and the hourly rate limit applies. The limit is now keyed by the person's email, so web and phone share one budget.
+- **One exception:** when a phone's From isn't one of the mailbox's addresses, which happens when a shared mailbox's member set up the phone with their own address, the message goes out from the mailbox's primary address instead of being refused. A refusal would leave it stuck in the phone's Outbox.
+- **Headers only:** sesame takes recipients from `To`, `Cc` and `Bcc`, removes `Bcc`, replaces `Message-ID` and adds `Date` if missing. The body bytes go out as the phone built them.
+- **Replies and forwards:** when the phone sends only what the user typed, sesame rebuilds the message with the original quoted, or forwarded with its attachments from S3, so attachments the phone never downloaded still go out.
+- **At most once:** iOS resends with the same `ClientId` when it misses a response. A conditional put on `EASSEND#<user>#<deviceId>` / `<clientId>` (one-day TTL) turns a resend into success without a second send, and is removed again if sending fails.

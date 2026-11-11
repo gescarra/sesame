@@ -112,3 +112,9 @@ variable "eas_push" {
   type        = bool
   default     = false
 }
+
+variable "eas_origin_read_timeout" {
+  description = "Seconds CloudFront waits for ActiveSync; push heartbeats last 10 seconds less. Up to 60, or 180 after a CloudFront quota increase."
+  type        = number
+  default     = 60
+}

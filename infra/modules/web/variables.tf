@@ -157,6 +157,16 @@ variable "eas_push" {
   default     = false
 }
 
+variable "eas_origin_read_timeout" {
+  description = "Seconds CloudFront waits for the ActiveSync function, which caps Ping heartbeats 10 seconds below it. CloudFront allows up to 60; request the origin response timeout quota increase to use up to 180, which push needs to work well."
+  type        = number
+  default     = 60
+  validation {
+    condition     = var.eas_origin_read_timeout >= 30 && var.eas_origin_read_timeout <= 180
+    error_message = "eas_origin_read_timeout must be 30-180 seconds."
+  }
+}
+
 variable "admin_group" {
   description = "Cognito group whose members may use the admin console."
   type        = string

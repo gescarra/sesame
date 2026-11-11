@@ -123,6 +123,8 @@ export class FakeDb {
         sendQueueUrl: SEND_QUEUE,
         sendRateLimit: 200,
         push: false,
+        // As with CloudFront's origin timeout raised to 180 s, so tests can use longer heartbeats.
+        maxHeartbeat: 840,
       },
       doc,
       s3,

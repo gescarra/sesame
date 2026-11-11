@@ -1,7 +1,7 @@
 import { changeMessage, deterministicUlid, directoryKeys, mailKeys } from "@sesame/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
-import { MAX_HEARTBEAT, POLL_MS } from "./commands/ping.ts";
+import { POLL_MS } from "./commands/ping.ts";
 import { type FolderState, INDEX_LAG_MS } from "./state.ts";
 import { ALICE, basic, DIR, FakeDb, MAIL, MBX, NOW, PASSWORD, POLICY_KEY, post } from "./testing.ts";
 import { child, children, childText, type Element, el } from "./wbxml/codec.ts";
@@ -162,11 +162,26 @@ describe("Ping", () => {
   });
 
   it("answers 5 with the limit for a heartbeat out of range", async () => {
-    expect(await ping(pingBody(900, ["inbox"]))).toMatchObject({
-      status: "5",
-      heartbeat: String(MAX_HEARTBEAT),
-    });
+    expect(await ping(pingBody(900, ["inbox"]))).toMatchObject({ status: "5", heartbeat: "840" });
     expect(await ping(pingBody(30, ["inbox"]))).toMatchObject({ status: "5", heartbeat: "60" });
+  });
+
+  it("keeps heartbeats under CloudFront's origin timeout, below EAS's 60 s minimum if it must", async () => {
+    db.deps.config.maxHeartbeat = 50;
+    expect(await ping(pingBody(480, ["inbox"]))).toMatchObject({ status: "5", heartbeat: "50" });
+    await primed();
+    expect((await ping(pingBody(50, ["inbox"]))).status).toBe("1");
+    expect(db.clock).toBe(NOW + 50_000);
+  });
+
+  it("cuts a remembered heartbeat to a lower limit", async () => {
+    await primed();
+    db.onSleep = undefined;
+    await ping(pingBody(60, ["inbox"]));
+    db.deps.config.maxHeartbeat = 50;
+    const start = db.clock;
+    expect((await ping()).status).toBe("1");
+    expect(db.clock - start).toBe(50_000);
   });
 
   it("answers 7 for a folder it doesn't know", async () => {

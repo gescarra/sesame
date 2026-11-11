@@ -19,9 +19,16 @@ const Status = {
   FolderSyncRequired: 7,
 } as const;
 
-/** EAS allows 60-3540 seconds; a Web Function request lasts at most 900, so 840 leaves room. */
-export const MIN_HEARTBEAT = 60;
-export const MAX_HEARTBEAT = 840;
+/**
+ * EAS allows 60-3540 seconds, but requests come through CloudFront, which waits at most its
+ * origin read timeout (60 seconds by default, 180 with a quota increase) for an answer. The
+ * longest heartbeat is therefore deployment configuration, a little under that timeout, and
+ * the shortest drops below EAS's 60 to match when it must.
+ */
+export const EAS_MIN_HEARTBEAT = 60;
+export function heartbeatBounds(maxHeartbeat: number): { min: number; max: number } {
+  return { min: Math.min(EAS_MIN_HEARTBEAT, maxHeartbeat), max: maxHeartbeat };
+}
 /** How often a held Ping reads the folder versions: new mail reaches the phone within this, plus a Sync. */
 export const POLL_MS = 20_000;
 
@@ -45,15 +52,18 @@ export const ping: Handler = async (ctx, body) => {
   // An empty Ping, or one without either part, repeats the last one's.
   const heartbeatText = childText(body, "Ping:HeartbeatInterval");
   const foldersElement = child(body, "Ping:Folders");
+  const bounds = heartbeatBounds(deps.config.maxHeartbeat);
   let heartbeat = session.device.pingHeartbeat;
   if (heartbeatText !== undefined) {
     heartbeat = Number(heartbeatText);
     if (!Number.isInteger(heartbeat)) return reply(Status.SyntaxError);
-    if (heartbeat < MIN_HEARTBEAT || heartbeat > MAX_HEARTBEAT) {
-      const limit = heartbeat < MIN_HEARTBEAT ? MIN_HEARTBEAT : MAX_HEARTBEAT;
+    if (heartbeat < bounds.min || heartbeat > bounds.max) {
+      const limit = heartbeat < bounds.min ? bounds.min : bounds.max;
       return reply(Status.InvalidHeartbeat, [el("Ping:HeartbeatInterval", limit)]);
     }
   }
+  // A heartbeat remembered under an older, longer limit is cut to the current one.
+  if (heartbeat !== undefined) heartbeat = Math.min(heartbeat, bounds.max);
   let folders = session.device.pingFolders;
   if (foldersElement) {
     folders = [...new Set(children(foldersElement, "Ping:Folder").map((f) => childText(f, "Ping:Id") ?? ""))];

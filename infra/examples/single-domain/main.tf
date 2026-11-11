@@ -73,6 +73,7 @@ module "web" {
   send_queue_url            = module.outbound.send_queue_url
   send_queue_arn            = module.outbound.send_queue_arn
   eas_push                  = var.eas_push
+  eas_origin_read_timeout   = var.eas_origin_read_timeout
 
   providers = {
     aws           = aws
@@ -119,4 +120,24 @@ module "observability" {
   purge_dlq_name     = module.purge.purge_dlq_name
   api_function_name  = module.web.api_function_name
   api_endpoint_name  = module.web.api_endpoint_name
+}
+
+# Autodiscover: lets a phone find the ActiveSync server from an email address, so nobody types
+# a server name. The SRV record points at the eas endpoint's own host name, which matches its
+# certificate. Typing the server name (the eas_server output) works without it.
+locals {
+  autodiscover_record = {
+    name  = "_autodiscover._tcp.${var.domain}"
+    type  = "SRV"
+    value = "0 0 443 ${module.web.eas_server}"
+  }
+}
+
+resource "aws_route53_record" "autodiscover" {
+  count   = var.route53_zone_id == null ? 0 : 1
+  zone_id = var.route53_zone_id
+  name    = local.autodiscover_record.name
+  type    = local.autodiscover_record.type
+  ttl     = 300
+  records = [local.autodiscover_record.value]
 }

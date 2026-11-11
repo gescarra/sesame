@@ -284,8 +284,6 @@ resource "awscc_lambda_web_function_revision" "api" {
       # The API reads publicUrl once per environment. A new revision on a domain change makes
       # every environment pick up the new value.
       SESAME_DOMAIN = var.domain_name == null ? "" : var.domain_name
-      # Shown on the Devices page as the server to type into a phone.
-      EAS_SERVER = awscc_lambda_web_function_endpoint.eas.domain_name
     }
     telemetry_config = {
       logging_config = {
@@ -532,6 +530,19 @@ resource "aws_cloudfront_distribution" "this" {
     }
   }
 
+  origin {
+    origin_id                = local.eas_origin_id
+    domain_name              = awscc_lambda_web_function_endpoint.eas.domain_name
+    origin_access_control_id = aws_cloudfront_origin_access_control.api.id
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+      origin_read_timeout    = var.eas_origin_read_timeout
+    }
+  }
+
   default_cache_behavior {
     target_origin_id           = local.site_origin_id
     viewer_protocol_policy     = "redirect-to-https"
@@ -571,6 +582,29 @@ resource "aws_cloudfront_distribution" "this" {
     cache_policy_id            = local.caching_disabled
     origin_request_policy_id   = local.all_viewer_except_host_header
     response_headers_policy_id = local.security_headers_policy
+  }
+
+  # ActiveSync and Autodiscover, for phones (eas.tf). WBXML isn't compressed: phones don't expect it.
+  dynamic "ordered_cache_behavior" {
+    for_each = local.eas_paths
+    content {
+      path_pattern             = ordered_cache_behavior.key
+      target_origin_id         = local.eas_origin_id
+      viewer_protocol_policy   = "https-only"
+      allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+      cached_methods           = ["GET", "HEAD"]
+      compress                 = false
+      cache_policy_id          = aws_cloudfront_cache_policy.eas.id
+      origin_request_policy_id = aws_cloudfront_origin_request_policy.eas.id
+
+      dynamic "function_association" {
+        for_each = ordered_cache_behavior.value ? [aws_cloudfront_function.eas_host.arn] : []
+        content {
+          event_type   = "viewer-request"
+          function_arn = function_association.value
+        }
+      }
+    }
   }
 
   restrictions {

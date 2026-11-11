@@ -13,7 +13,7 @@ output "directory_table" {
 
 output "dns_records" {
   description = "Publish these with your DNS provider unless route53_zone_id is set."
-  value       = module.ses_domain.dns_records
+  value       = concat(module.ses_domain.dns_records, [local.autodiscover_record])
 }
 
 output "ingest_queue_url" {

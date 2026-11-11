@@ -131,6 +131,8 @@ Until the marker is gone, the mailbox is listed under **Being deleted** on the c
 
 Mail the mailbox had already queued to outside recipients is still sent. SES events for it are dropped, because its Sent copy no longer exists.
 
+Phones syncing the mailbox stop at once, because their owners' access goes with it. Their app passwords stay on each owner's **Phones and devices** page, marked "A mailbox you no longer have access to", until the owner revokes them.
+
 ## SES reputation
 
 SES puts an account under review at a 5% bounce rate or a 0.1% complaint rate, and may pause sending at 10% or 0.5%. The alarms fire a little earlier.
@@ -172,6 +174,36 @@ AWS usually answers within a day. Reviewers want to know:
 sesame suppresses hard bounces and complaints automatically and rate-limits each user, so say so. `sesame domain status <domain>` should report the domain as verified, with DKIM and MAIL FROM set up, before you apply.
 
 Once access is granted, `aws sesv2 get-account` shows `ProductionAccessEnabled: true` and the higher sending quota.
+
+## Phones (ActiveSync)
+
+Phones sync through the `<name>-eas` Web Function, behind the app's CloudFront distribution. Their server name is the app's own host (the `eas_server` output). Its logs carry one line per request, with the command, a short hash of the device id and the duration, and never credentials, addresses or message content:
+
+```bash
+aws logs tail /aws/lambda/web/sesame-eas.local --since 30m --format short
+```
+
+There's no alarm for this function, to stay within the CloudWatch free tier. Check its logs when someone reports trouble.
+
+### A phone can't sign in
+
+- **Wrong password or username:** the username must be the person's own email, `DOMAIN\user`, or the bare local part, and the app password must be for a mailbox they're still a member of. Logs show `ActiveSync sign-in failed` with `reason` `password` or `username`, or `ActiveSync sign-in without mailbox access`.
+- **Locked out:** after 10 failed sign-ins for one username or from one IP within 15 minutes, `ActiveSync sign-in refused: too many failures` is logged and new devices are turned away until the window ends. Phones that already signed in keep working. Nothing needs clearing: the counters expire on their own.
+- **Server name:** iOS needs the `eas_server` output as the server, unless Autodiscover finds it. With `route53_zone_id` set, the example creates the `_autodiscover._tcp.<domain>` SRV record; otherwise it's in the `dns_records` output.
+- **From outside:** Microsoft's Remote Connectivity Analyzer (testconnectivity.microsoft.com) has an Exchange ActiveSync test that runs against any public server, using a real app password.
+
+### Offboarding and lost phones
+
+- **Someone leaves:** remove their access to each mailbox in the admin console or with `sesame member revoke <mailbox address> <login email>`. Their phones stop on the next request. Disabling them in your identity provider is not enough, because app passwords don't go through it.
+- **A lost phone:** the owner revokes its app password on the **Phones and devices** page, which ends its sync at once. There's no remote wipe.
+
+### Push
+
+`eas_push` decides whether phones may use push. Off (the default), phones set to Push fetch on their own schedule, every 15 minutes at most. On, one environment stays active while any phone waits, about $1.90 a month (see [cost](cost.md#phones-activesync)). Changing it creates a new revision; phones notice at their next `OPTIONS` request, which iOS sends from time to time, or when the account is added again.
+
+New mail should reach a phone set to Push within about 20 seconds plus one sync. If it doesn't, check that the phone is set to Push for this account (**Settings › Apps › Mail › Mail Accounts › Fetch New Data**), and that the logs show `Ping` requests lasting the full heartbeat (`eas_origin_read_timeout` less 10 seconds) rather than returning at once.
+
+Short heartbeats mean more requests and more battery use on the phone. To lengthen them, request an increase of the CloudFront quota **Response timeout per origin** to 180 seconds in Service Quotas, then set `eas_origin_read_timeout = 180` in `terraform.tfvars` and apply.
 
 ## Backups and recovery
 
