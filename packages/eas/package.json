@@ -1,0 +1,20 @@
+{
+  "name": "@sesame/eas",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Exchange ActiveSync endpoint for phones, served by a Lambda Web Function",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/bundle.mjs --include-aws-sdk src/server.ts",
+    "dev": "node --watch src/server.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1158.0",
+    "@aws-sdk/lib-dynamodb": "^3.1158.0",
+    "@hono/node-server": "^2.1.5",
+    "@sesame/core": "workspace:*",
+    "hono": "^4.13.14"
+  }
+}

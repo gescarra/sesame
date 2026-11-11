@@ -26,6 +26,8 @@ export interface Config extends SharedConfig {
   sendQueueUrl: string;
   /** Messages a user may send per hour. */
   sendRateLimit: number;
+  /** Host name of the ActiveSync endpoint, shown on the Devices page. Absent when it isn't deployed. */
+  easServer?: string;
 }
 
 interface StoredConfig {
@@ -68,8 +70,10 @@ export async function loadSharedConfig(): Promise<SharedConfig> {
 }
 
 export async function loadConfig(): Promise<Config> {
+  const easServer = process.env.EAS_SERVER;
   return {
     ...(await loadSharedConfig()),
+    ...(easServer ? { easServer } : {}),
     mailTable: env("MAIL_TABLE"),
     mailBucket: env("MAIL_BUCKET"),
     directoryTable: env("DIRECTORY_TABLE"),

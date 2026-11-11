@@ -23,6 +23,7 @@ import {
   type Page,
   SYSTEM_FOLDERS,
   type SystemFolder,
+  USER_INDEX,
 } from "@sesame/core";
 import { HTTPException } from "hono/http-exception";
 import type { Deps } from "./deps.ts";
@@ -83,8 +84,9 @@ export async function listMailboxes(deps: Deps, email: string): Promise<MailboxA
       new QueryCommand({
         TableName: deps.config.directoryTable,
         IndexName: "gsi1",
-        KeyConditionExpression: "gsi1pk = :u",
-        ExpressionAttributeValues: { ":u": directoryKeys.member("x", email).gsi1pk },
+        // App passwords share this partition (gsi1sk APPPW#…).
+        KeyConditionExpression: "gsi1pk = :u AND begins_with(gsi1sk, :m)",
+        ExpressionAttributeValues: { ":u": directoryKeys.member("x", email).gsi1pk, ":m": USER_INDEX.member },
         ExclusiveStartKey,
       }),
     );

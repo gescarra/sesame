@@ -21,6 +21,7 @@ export const keys = {
   search: (mbx: string, q: string) => ["messages", mbx, "search", q] as const,
   message: (mbx: string, id: string) => ["message", mbx, id] as const,
   thread: (mbx: string, threadId: string) => ["thread", mbx, threadId] as const,
+  appPasswords: ["app-passwords"] as const,
 };
 
 export function retryUnlessClientError(failures: number, error: unknown): boolean {
@@ -30,6 +31,19 @@ export function retryUnlessClientError(failures: number, error: unknown): boolea
 
 export function useMe() {
   return useQuery({ queryKey: keys.me, queryFn: api.me, staleTime: 5 * 60_000 });
+}
+
+export function useAppPasswords() {
+  return useQuery({ queryKey: keys.appPasswords, queryFn: api.appPasswords });
+}
+
+/** Creating and revoking app passwords; both refresh the list. */
+export function useAppPasswordActions() {
+  const client = useQueryClient();
+  const refresh = () => void client.invalidateQueries({ queryKey: keys.appPasswords });
+  const create = useMutation({ mutationFn: api.createAppPassword, onSettled: refresh });
+  const revoke = useMutation({ mutationFn: api.revokeAppPassword, onSettled: refresh });
+  return { create, revoke };
 }
 
 export function useFolders(mbx: string) {

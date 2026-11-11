@@ -22,7 +22,24 @@ export const directoryKeys = {
   purge: (mailboxId: string) => ({ pk: `PURGE#${mailboxId}`, sk: META }),
   /** One partition, newest last: admin actions are rare enough not to need sharding. */
   audit: (at: string, id: string) => ({ pk: "AUDIT", sk: `${at}#${id}` }),
+  /**
+   * An app password, keyed by the SHA-256 of its normalized value so a sign-in is one GetItem.
+   * GSI1 lists a user's passwords next to their memberships (gsi1sk APPPW# vs MBX#).
+   */
+  appPassword: (hash: string, userId: string, id: string) => ({
+    ...directoryKeys.appPasswordByHash(hash),
+    gsi1pk: `USER#${normalizeAddress(userId)}`,
+    gsi1sk: `APPPW#${id}`,
+  }),
+  appPasswordByHash: (hash: string) => ({ pk: `APPPW#${hash}`, sk: META }),
+  /** A phone (or other ActiveSync client) that signed in with one of the user's app passwords. */
+  device: (userId: string, deviceId: string) => ({ pk: `DEVICE#${normalizeAddress(userId)}`, sk: deviceId }),
+  /** Failed ActiveSync sign-ins for one username or source IP in one window. Expires by TTL. */
+  authFailures: (subject: string, window: string) => ({ pk: `AUTHFAIL#${subject}#${window}`, sk: META }),
 };
+
+/** GSI1 sort key prefixes under USER#<email>. */
+export const USER_INDEX = { member: "MBX#", appPassword: "APPPW#" } as const;
 
 /** Keys for the `sesame-mail` table. */
 export const mailKeys = {

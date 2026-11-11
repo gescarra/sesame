@@ -132,8 +132,10 @@ describe("GET /api/me", () => {
         { mailboxId: MBX, address: "alice@example.com", role: "owner", usedBytes: 512, quotaBytes: 1024 },
       ],
     });
+    // Memberships only: app passwords share the USER# partition of the index.
     expect(ddbMock.commandCalls(QueryCommand)[0]?.args[0].input.ExpressionAttributeValues).toEqual({
       ":u": "USER#alice@example.com",
+      ":m": "MBX#",
     });
   });
 });

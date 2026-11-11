@@ -41,3 +41,12 @@ output "admin_log_group" {
   value = aws_cloudwatch_log_group.admin.name
 }
 
+
+output "eas_server" {
+  description = "Host name phones use as the Exchange server."
+  value       = awscc_lambda_web_function_endpoint.eas.domain_name
+}
+
+output "eas_log_group" {
+  value = aws_cloudwatch_log_group.eas.name
+}

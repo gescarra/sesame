@@ -297,6 +297,24 @@ importers:
         specifier: ^3.1158.0
         version: 3.1158.0(@aws-sdk/client-dynamodb@3.1158.0)
 
+  packages/eas:
+    dependencies:
+      '@aws-sdk/client-dynamodb':
+        specifier: ^3.1158.0
+        version: 3.1158.0
+      '@aws-sdk/lib-dynamodb':
+        specifier: ^3.1158.0
+        version: 3.1158.0(@aws-sdk/client-dynamodb@3.1158.0)
+      '@hono/node-server':
+        specifier: ^2.1.5
+        version: 2.1.5(hono@4.13.14)
+      '@sesame/core':
+        specifier: workspace:*
+        version: link:../core
+      hono:
+        specifier: ^4.13.14
+        version: 4.13.14
+
   packages/ingest:
     dependencies:
       '@aws-sdk/client-dynamodb':

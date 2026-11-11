@@ -1,8 +1,11 @@
 // Thin client for the sesame API. The session lives in an HttpOnly cookie on the same
 // origin, so requests carry it automatically; this module never sees a token.
 import type {
+  AppPasswordsResponse,
   BatchRequest,
   BatchResponse,
+  CreateAppPasswordRequest,
+  CreateAppPasswordResponse,
   DownloadUrl,
   FoldersResponse,
   MeResponse,
@@ -125,6 +128,14 @@ export const api = {
     });
     return target.uploadId;
   },
+
+  appPasswords: () => request<AppPasswordsResponse>("/app-passwords"),
+
+  createAppPassword: (body: CreateAppPasswordRequest) =>
+    request<CreateAppPasswordResponse>("/app-passwords", { method: "POST", body: JSON.stringify(body) }),
+
+  revokeAppPassword: (id: string) =>
+    request<{ ok: true }>(`/app-passwords/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   async signOut() {
     const { logoutUrl } = await request<{ logoutUrl: string }>("/auth/logout", { method: "POST" });

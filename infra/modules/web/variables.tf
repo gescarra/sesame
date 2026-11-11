@@ -140,6 +140,17 @@ variable "admin_source_dir" {
   type        = string
 }
 
+variable "eas_source_dir" {
+  description = "Directory with the built ActiveSync function (packages/eas/dist)."
+  type        = string
+}
+
+variable "eas_max_environments" {
+  description = "Most ActiveSync environments at once. Each holds up to 64 phones' requests."
+  type        = number
+  default     = 4
+}
+
 variable "admin_group" {
   description = "Cognito group whose members may use the admin console."
   type        = string

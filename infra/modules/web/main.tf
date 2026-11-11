@@ -63,7 +63,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
 # Lambda fetches revision code as its own service principal, scoped to each function's revisions.
 data "aws_iam_policy_document" "artifacts" {
   dynamic "statement" {
-    for_each = { api = local.function_name, admin = local.admin_function_name }
+    for_each = { api = local.function_name, admin = local.admin_function_name, eas = local.eas_function_name }
     content {
       sid       = "LambdaReads${title(statement.key)}RevisionCode"
       actions   = ["s3:GetObject", "s3:GetObjectVersion"]
@@ -284,6 +284,8 @@ resource "awscc_lambda_web_function_revision" "api" {
       # The API reads publicUrl once per environment. A new revision on a domain change makes
       # every environment pick up the new value.
       SESAME_DOMAIN = var.domain_name == null ? "" : var.domain_name
+      # Shown on the Devices page as the server to type into a phone.
+      EAS_SERVER = awscc_lambda_web_function_endpoint.eas.domain_name
     }
     telemetry_config = {
       logging_config = {

@@ -56,6 +56,7 @@ module "web" {
   certificate_arn           = var.web_certificate_arn
   api_source_dir            = "${local.repo_root}/packages/api/dist"
   admin_source_dir          = "${local.repo_root}/packages/admin/dist"
+  eas_source_dir            = "${local.repo_root}/packages/eas/dist"
   admin_group               = module.auth.admin_group
   mail_table_name           = module.storage.mail_table_name
   mail_table_arn            = module.storage.mail_table_arn

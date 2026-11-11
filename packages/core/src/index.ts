@@ -1,4 +1,5 @@
 export * from "./address.ts";
+export * from "./appPassword.ts";
 export * from "./delivery.ts";
 export * from "./directory.ts";
 export * from "./dto.ts";

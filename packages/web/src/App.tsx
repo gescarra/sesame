@@ -9,6 +9,7 @@ import {
 } from "react-router";
 import { ApiError, api, type ListView } from "./api.ts";
 import { ComposeProvider } from "./components/Compose.tsx";
+import { Devices } from "./components/Devices.tsx";
 import { FolderRail } from "./components/FolderRail.tsx";
 import { MessageList } from "./components/MessageList.tsx";
 import { Reader } from "./components/Reader.tsx";
@@ -22,6 +23,7 @@ const router = createBrowserRouter([
       { index: true, element: <Home /> },
       { path: "m/:mbx/:view", element: <Mail /> },
       { path: "m/:mbx/:view/:id", element: <Mail /> },
+      { path: "devices", element: <Devices /> },
       { path: "*", element: <Problem title="Page not found" /> },
     ],
   },

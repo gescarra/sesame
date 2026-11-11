@@ -187,6 +187,50 @@ export interface PurgeItem {
   requestedAt: string;
 }
 
+/**
+ * A password for one mailbox, used by ActiveSync clients (phones), which can't sign in through
+ * Cognito. Only the SHA-256 of the normalized password is stored; see appPassword.ts.
+ */
+export interface AppPasswordItem {
+  pk: string;
+  sk: string;
+  gsi1pk: string;
+  gsi1sk: string;
+  type: "app-password";
+  id: string;
+  /** Normalized email of the user who created it; mailbox access is re-checked on every use. */
+  userId: string;
+  mailboxId: string;
+  label: string;
+  createdAt: string;
+  /** Updated at most hourly. */
+  lastUsedAt?: string;
+}
+
+/** An ActiveSync device, created on its first signed-in request. */
+export interface DeviceItem {
+  pk: string;
+  sk: string;
+  type: "device";
+  userId: string;
+  deviceId: string;
+  deviceType: string;
+  /** The app password it last signed in with, and that password's mailbox. */
+  passwordId: string;
+  mailboxId: string;
+  userAgent?: string;
+  model?: string;
+  os?: string;
+  friendlyName?: string;
+  /** Set by the second Provision round; every other command must present it. */
+  policyKey?: string;
+  /** Handed out in the first Provision round, waiting for the client's acknowledgement. */
+  pendingPolicyKey?: string;
+  firstSeenAt: string;
+  /** Updated at most hourly. */
+  lastSeenAt: string;
+}
+
 /** Message on the purge queue. The final pass runs later, to catch deliveries already in flight. */
 export interface PurgeJob {
   mailboxId: string;

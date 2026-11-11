@@ -76,3 +76,12 @@ output "admin_group" {
   value       = module.auth.admin_group
 }
 
+
+output "eas_server" {
+  description = "The server name to type into an iPhone's Exchange account settings."
+  value       = module.web.eas_server
+}
+
+output "eas_log_group" {
+  value = module.web.eas_log_group
+}
