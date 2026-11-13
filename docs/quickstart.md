@@ -54,6 +54,7 @@ With `route53_zone_id` set, Terraform creates the records. Otherwise, publish th
 | 3 × `CNAME` `<token>._domainkey`                           | Easy DKIM signing                 |
 | `MX` + `TXT` on `bounce.<domain>`                          | Custom MAIL FROM, so SPF aligns   |
 | `TXT` on `_dmarc`                                          | DMARC policy (starts at `p=none`) |
+| `SRV` on `_autodiscover._tcp` → the ActiveSync endpoint    | Phones find the server by address |
 
 Check verification, which can take a few minutes after DNS propagates:
 
@@ -197,3 +198,16 @@ aws cognito-idp admin-add-user-to-group --user-pool-id "$(terraform output -raw 
 - **Federated users:** they must sign in once first. Their username then looks like `<idp name>_<id>`; find it with `aws cognito-idp list-users`.
 
 Group membership is read at sign-in, so a new administrator must sign in again. The console's **Sign in again** link does that. Removing someone from the group takes effect at their next sign-in, which is within 12 hours.
+
+## 12. Phones (ActiveSync)
+
+iPhone Mail can sync a sesame mailbox as an Exchange account: mail, read and flagged state, moves and deletes, and sending. Calendar and contacts aren't synced.
+
+1. In the web app, open **Phones and devices** below the folders, choose the mailbox and a label, and create an app password. It's shown once.
+2. On the iPhone, open **Settings › Apps › Mail › Mail Accounts › Add Account › Microsoft Exchange**. Enter the mailbox's address, tap **Next**, then **Configure Manually**, and enter the app password.
+3. If the phone asks for a server, enter the app's host name (`terraform output -raw eas_server`), leave **Domain** empty, and use your email as the username. The Phones and devices page shows the same values.
+4. Turn on **Mail** only.
+
+The phone then fetches new mail on its schedule, every 15 minutes at most. For push, so new mail arrives within about a minute, set `eas_push = true` in `terraform.tfvars` and apply, then set the account to **Push** under **Settings › Apps › Mail › Mail Accounts › Fetch New Data**. Push keeps one Web Function environment active while any phone waits, about $1.90 a month ([cost](cost.md#phones-activesync)).
+
+Each app password opens one mailbox; create one per mailbox. Revoking it on that page ends sync on its phones. To cut off someone who leaves, remove their mailbox access: their phones stop at once. [operations.md](operations.md#phones-activesync) covers sign-in problems, lockouts and push.

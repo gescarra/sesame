@@ -1,6 +1,6 @@
 import type { MailboxAccess } from "@sesame/core/dto";
 import { useEffect } from "react";
-import { NavLink, useNavigate } from "react-router";
+import { Link, NavLink, useNavigate } from "react-router";
 import { api, type ListView, type View } from "../api.ts";
 import { folderLabel, formatSize } from "../format.ts";
 import { useFolders, useMe } from "../queries.ts";
@@ -87,6 +87,9 @@ export function FolderRail(props: { mailbox: MailboxAccess; mailboxes: MailboxAc
         <span className="account-email" title={me.data?.email}>
           {me.data?.name ?? me.data?.email}
         </span>
+        <Link className="link-button" to="/devices">
+          Phones and devices
+        </Link>
         <button type="button" className="link-button" onClick={() => void api.signOut()}>
           Sign out
         </button>

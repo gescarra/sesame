@@ -26,6 +26,11 @@ export interface Config extends SharedConfig {
   sendQueueUrl: string;
   /** Messages a user may send per hour. */
   sendRateLimit: number;
+  /**
+   * Host name phones use as the Exchange server, shown on the Devices page. ActiveSync is
+   * served by the same distribution as the app, so it's the app's own host.
+   */
+  easServer?: string;
 }
 
 interface StoredConfig {
@@ -68,8 +73,10 @@ export async function loadSharedConfig(): Promise<SharedConfig> {
 }
 
 export async function loadConfig(): Promise<Config> {
+  const shared = await loadSharedConfig();
   return {
-    ...(await loadSharedConfig()),
+    ...shared,
+    easServer: new URL(shared.publicUrl).host,
     mailTable: env("MAIL_TABLE"),
     mailBucket: env("MAIL_BUCKET"),
     directoryTable: env("DIRECTORY_TABLE"),

@@ -107,3 +107,14 @@ variable "web_certificate_arn" {
   default     = null
 }
 
+variable "eas_push" {
+  description = "Offer push to phones on ActiveSync. Costs about $1.90 a month while any phone uses it; off, phones fetch on their schedule."
+  type        = bool
+  default     = false
+}
+
+variable "eas_origin_read_timeout" {
+  description = "Seconds CloudFront waits for ActiveSync; push heartbeats last 10 seconds less. Up to 60, or 180 after a CloudFront quota increase."
+  type        = number
+  default     = 60
+}

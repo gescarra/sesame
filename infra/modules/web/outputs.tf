@@ -41,3 +41,12 @@ output "admin_log_group" {
   value = aws_cloudwatch_log_group.admin.name
 }
 
+
+output "eas_server" {
+  description = "Host name phones use as the Exchange server: the web app's own."
+  value       = trimprefix(local.public_url, "https://")
+}
+
+output "eas_log_group" {
+  value = aws_cloudwatch_log_group.eas.name
+}

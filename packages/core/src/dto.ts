@@ -165,3 +165,43 @@ export interface SearchResponse extends Page<MessageSummary> {
   /** A word matched so many messages that older matches may be missing. */
   truncated?: boolean;
 }
+
+/** A phone that signed in with an app password. */
+export interface DeviceSummary {
+  deviceId: string;
+  deviceType: string;
+  model?: string;
+  os?: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+export interface AppPasswordSummary {
+  id: string;
+  label: string;
+  mailboxId: string;
+  /** The mailbox's primary address; absent when the user no longer has access to it. */
+  address?: string;
+  createdAt: string;
+  lastUsedAt?: string;
+  devices: DeviceSummary[];
+}
+
+/** GET /app-passwords */
+export interface AppPasswordsResponse {
+  /** The host name to type into a phone's Exchange account settings, or null when ActiveSync is off. */
+  server: string | null;
+  passwords: AppPasswordSummary[];
+}
+
+/** POST /app-passwords */
+export interface CreateAppPasswordRequest {
+  mailboxId: string;
+  label: string;
+}
+
+/** The only time the password itself is returned. */
+export interface CreateAppPasswordResponse {
+  password: string;
+  appPassword: AppPasswordSummary;
+}

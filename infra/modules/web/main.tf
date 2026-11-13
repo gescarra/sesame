@@ -63,7 +63,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
 # Lambda fetches revision code as its own service principal, scoped to each function's revisions.
 data "aws_iam_policy_document" "artifacts" {
   dynamic "statement" {
-    for_each = { api = local.function_name, admin = local.admin_function_name }
+    for_each = { api = local.function_name, admin = local.admin_function_name, eas = local.eas_function_name }
     content {
       sid       = "LambdaReads${title(statement.key)}RevisionCode"
       actions   = ["s3:GetObject", "s3:GetObjectVersion"]
@@ -530,6 +530,19 @@ resource "aws_cloudfront_distribution" "this" {
     }
   }
 
+  origin {
+    origin_id                = local.eas_origin_id
+    domain_name              = awscc_lambda_web_function_endpoint.eas.domain_name
+    origin_access_control_id = aws_cloudfront_origin_access_control.api.id
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+      origin_read_timeout    = var.eas_origin_read_timeout
+    }
+  }
+
   default_cache_behavior {
     target_origin_id           = local.site_origin_id
     viewer_protocol_policy     = "redirect-to-https"
@@ -569,6 +582,29 @@ resource "aws_cloudfront_distribution" "this" {
     cache_policy_id            = local.caching_disabled
     origin_request_policy_id   = local.all_viewer_except_host_header
     response_headers_policy_id = local.security_headers_policy
+  }
+
+  # ActiveSync and Autodiscover, for phones (eas.tf). WBXML isn't compressed: phones don't expect it.
+  dynamic "ordered_cache_behavior" {
+    for_each = local.eas_paths
+    content {
+      path_pattern             = ordered_cache_behavior.key
+      target_origin_id         = local.eas_origin_id
+      viewer_protocol_policy   = "https-only"
+      allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+      cached_methods           = ["GET", "HEAD"]
+      compress                 = false
+      cache_policy_id          = aws_cloudfront_cache_policy.eas.id
+      origin_request_policy_id = aws_cloudfront_origin_request_policy.eas.id
+
+      dynamic "function_association" {
+        for_each = ordered_cache_behavior.value ? [aws_cloudfront_function.eas_host.arn] : []
+        content {
+          event_type   = "viewer-request"
+          function_arn = function_association.value
+        }
+      }
+    }
   }
 
   restrictions {

@@ -13,7 +13,7 @@ output "directory_table" {
 
 output "dns_records" {
   description = "Publish these with your DNS provider unless route53_zone_id is set."
-  value       = module.ses_domain.dns_records
+  value       = concat(module.ses_domain.dns_records, [local.autodiscover_record])
 }
 
 output "ingest_queue_url" {
@@ -76,3 +76,12 @@ output "admin_group" {
   value       = module.auth.admin_group
 }
 
+
+output "eas_server" {
+  description = "The server name to type into an iPhone's Exchange account settings."
+  value       = module.web.eas_server
+}
+
+output "eas_log_group" {
+  value = module.web.eas_log_group
+}

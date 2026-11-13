@@ -17,12 +17,35 @@ export const directoryKeys = {
     gsi1sk: `MBX#${mailboxId}`,
   }),
   suppression: (address: string) => ({ pk: `SUPPRESS#${normalizeAddress(address)}`, sk: META }),
-  rate: (userSub: string, window: string) => ({ pk: `RATE#${userSub}#${window}`, sk: META }),
+  /** Sends per person per clock hour, keyed by normalized email so web and phones share one budget. */
+  rate: (userId: string, window: string) => ({ pk: `RATE#${normalizeAddress(userId)}#${window}`, sk: META }),
   /** A deleted mailbox whose mail is still being purged. */
   purge: (mailboxId: string) => ({ pk: `PURGE#${mailboxId}`, sk: META }),
   /** One partition, newest last: admin actions are rare enough not to need sharding. */
   audit: (at: string, id: string) => ({ pk: "AUDIT", sk: `${at}#${id}` }),
+  /**
+   * An app password, keyed by the SHA-256 of its normalized value so a sign-in is one GetItem.
+   * GSI1 lists a user's passwords next to their memberships (gsi1sk APPPW# vs MBX#).
+   */
+  appPassword: (hash: string, userId: string, id: string) => ({
+    ...directoryKeys.appPasswordByHash(hash),
+    gsi1pk: `USER#${normalizeAddress(userId)}`,
+    gsi1sk: `APPPW#${id}`,
+  }),
+  appPasswordByHash: (hash: string) => ({ pk: `APPPW#${hash}`, sk: META }),
+  /** A phone (or other ActiveSync client) that signed in with one of the user's app passwords. */
+  device: (userId: string, deviceId: string) => ({ pk: `DEVICE#${normalizeAddress(userId)}`, sk: deviceId }),
+  /** Failed ActiveSync sign-ins for one username or source IP in one window. Expires by TTL. */
+  authFailures: (subject: string, window: string) => ({ pk: `AUTHFAIL#${subject}#${window}`, sk: META }),
+  /** A message a phone sent, by its ClientId, so a resend isn't sent twice. Expires by TTL. */
+  easSend: (userId: string, deviceId: string, clientId: string) => ({
+    pk: `EASSEND#${normalizeAddress(userId)}#${deviceId}`,
+    sk: clientId,
+  }),
 };
+
+/** GSI1 sort key prefixes under USER#<email>. */
+export const USER_INDEX = { member: "MBX#", appPassword: "APPPW#" } as const;
 
 /** Keys for the `sesame-mail` table. */
 export const mailKeys = {
@@ -53,6 +76,14 @@ export const mailKeys = {
   sesMessage: (sesMessageId: string) => ({ pk: `SES#${sesMessageId}`, sk: META }),
   /** Claimed by the sender before calling SES, so a redelivered job never sends twice. */
   sendLock: (jobId: string) => ({ pk: `SEND#${jobId}`, sk: META }),
+  /**
+   * What one ActiveSync device holds of one folder (sync key and snapshot). Under the mailbox's
+   * partition, so purging the mailbox removes it.
+   */
+  easState: (mailboxId: string, deviceId: string, folder: string) => ({
+    pk: `MBX#${mailboxId}`,
+    sk: `EAS#${deviceId}#${folder}`,
+  }),
   /** Search tokens are sharded by their first two characters so prefix queries hit one partition. */
   searchToken: (mailboxId: string, token: string, ulid: string) => ({
     pk: searchShard(mailboxId, token),

@@ -106,7 +106,7 @@ variable "send_queue_arn" {
 }
 
 variable "send_rate_limit" {
-  description = "Messages each user may send per hour."
+  description = "Messages each person may send per hour, from the web app and phones together."
   type        = number
   default     = 200
 }
@@ -138,6 +138,33 @@ variable "certificate_arn" {
 variable "admin_source_dir" {
   description = "Directory with the built admin console (packages/admin/dist)."
   type        = string
+}
+
+variable "eas_source_dir" {
+  description = "Directory with the built ActiveSync function (packages/eas/dist)."
+  type        = string
+}
+
+variable "eas_max_environments" {
+  description = "Most ActiveSync environments at once. Each holds up to 64 phones' requests."
+  type        = number
+  default     = 4
+}
+
+variable "eas_push" {
+  description = "Offer push (ActiveSync Ping) to phones. A held Ping keeps one environment active around the clock, about $1.90 a month; off, phones set to Push fetch on their own schedule instead."
+  type        = bool
+  default     = false
+}
+
+variable "eas_origin_read_timeout" {
+  description = "Seconds CloudFront waits for the ActiveSync function, which caps Ping heartbeats 10 seconds below it. CloudFront allows up to 60; request the origin response timeout quota increase to use up to 180, which push needs to work well."
+  type        = number
+  default     = 60
+  validation {
+    condition     = var.eas_origin_read_timeout >= 30 && var.eas_origin_read_timeout <= 180
+    error_message = "eas_origin_read_timeout must be 30-180 seconds."
+  }
 }
 
 variable "admin_group" {

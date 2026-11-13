@@ -175,7 +175,8 @@ describe("POST /api/mailboxes/:mbx/send", () => {
     });
 
     const rate = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
-    expect(rate?.Key?.pk).toMatch(/^RATE#sub-alice#2026-10-27T12$/);
+    // One budget per person, shared with phones, so the key is the email rather than the sub.
+    expect(rate?.Key?.pk).toBe("RATE#alice@example.com#2026-10-27T12");
   });
 
   it("doesn't use SES when every recipient is local", async () => {

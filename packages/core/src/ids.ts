@@ -42,6 +42,11 @@ export function deterministicUlid(timeMs: number, seed: string): string {
   return encodeTime(timeMs) + encodeRandom(createHash("sha256").update(seed).digest());
 }
 
+/** The smallest ULID at a time: every ID created at or after `timeMs` sorts at or after it. */
+export function ulidFloor(timeMs: number): string {
+  return encodeTime(Math.max(0, Math.floor(timeMs))) + "0".repeat(16);
+}
+
 export function ulidTime(ulid: string): number {
   let ms = 0;
   for (const ch of ulid.slice(0, 10)) {

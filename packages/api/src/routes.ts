@@ -3,6 +3,7 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { type DownloadUrl, isSystemFolder, type MessageItem } from "@sesame/core";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { appPasswordRoutes } from "./appPasswords.ts";
 import type { Env } from "./deps.ts";
 import {
   type Changes,
@@ -36,6 +37,8 @@ export const apiRoutes = new Hono<MailboxEnv>();
 apiRoutes.post("/uploads", async (c) => {
   return c.json(await createUpload(c.var.deps, c.var.user, await jsonBody(c.req.raw)));
 });
+
+apiRoutes.route("/app-passwords", appPasswordRoutes);
 
 apiRoutes.get("/me", async (c) => {
   const user = c.var.user;

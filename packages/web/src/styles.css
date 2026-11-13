@@ -988,3 +988,138 @@ select.view-picker {
 .list > .notice {
   margin: 8px 12px;
 }
+
+/* --- Phones and devices --------------------------------------------------- */
+
+.page {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.page > * {
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.page h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.page section {
+  margin-top: 24px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.page > .card,
+.page .card + .card {
+  margin-top: 16px;
+}
+
+.card > .button {
+  align-self: flex-start;
+}
+
+.stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.stacked input,
+.stacked select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.password {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+.setup-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setup-values {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0;
+}
+
+.setup-values dt {
+  color: var(--muted);
+}
+
+.setup-values dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-passwords,
+.devices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.app-passwords > li + li {
+  margin-top: 12px;
+}
+
+.app-password-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-password-head .muted,
+.devices {
+  font-size: 13px;
+}
+
+.devices {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
